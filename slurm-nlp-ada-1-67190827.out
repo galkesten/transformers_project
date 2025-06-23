@@ -1,0 +1,42 @@
+*** SLURM BATCH JOB 'baseline' STARTING ***
+*** Activating environment sana ***
+[INFO] Sampling prompts...
+[INFO] Starting training generation...
+[INFO] Generating activations for 8 prompt(s) | Seed: 29607
+[INFO] Finished generation for 8 prompt(s)
+[INFO] Processing training batch 1/1250
+[INFO] Generating activations for 8 prompt(s) | Seed: 78724
+[INFO] Finished generation for 8 prompt(s)
+[INFO] Processing training batch 2/1250
+[INFO] Generating activations for 8 prompt(s) | Seed: 61654
+[INFO] Finished generation for 8 prompt(s)
+[INFO] Processing training batch 3/1250
+[INFO] Generating activations for 8 prompt(s) | Seed: 88882
+[INFO] Finished generation for 8 prompt(s)
+[INFO] Processing training batch 4/1250
+[INFO] Generating activations for 8 prompt(s) | Seed: 918
+[INFO] Finished generation for 8 prompt(s)
+[INFO] Processing training batch 5/1250
+[INFO] Generating activations for 8 prompt(s) | Seed: 62396
+[INFO] Finished generation for 8 prompt(s)
+[INFO] Processing training batch 6/1250
+[INFO] Generating activations for 8 prompt(s) | Seed: 62574
+[INFO] Finished generation for 8 prompt(s)
+[INFO] Processing training batch 7/1250
+[INFO] Generating activations for 8 prompt(s) | Seed: 35735
+[INFO] Finished generation for 8 prompt(s)
+[INFO] Processing training batch 8/1250
+[INFO] Generating activations for 8 prompt(s) | Seed: 47626
+[INFO] Finished generation for 8 prompt(s)
+[INFO] Processing training batch 9/1250
+[INFO] Generating activations for 8 prompt(s) | Seed: 93214
+[INFO] Finished generation for 8 prompt(s)
+[INFO] Processing training batch 10/1250
+[INFO] Generating activations for 8 prompt(s) | Seed: 36505
+[INFO] Finished generation for 8 prompt(s)
+[INFO] Processing training batch 11/1250
+[INFO] Generating activations for 8 prompt(s) | Seed: 38832
+[INFO] Finished generation for 8 prompt(s)
+[INFO] Processing training batch 12/1250
+[INFO] Generating activations for 8 prompt(s) | Seed: 62947
+*** SLURM BATCH JOB 'baseline' DONE ***

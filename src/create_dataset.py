@@ -100,8 +100,8 @@ def sample_prompts(n_train, n_test, seed=42):
     return prompts[:n_train], prompts[n_train:n_train + n_test]
 
 def generate_activations(prompts, pipe):
-    print(f"[INFO] Generating activations for {len(prompts)} prompt(s) | Seed: {seed}")
     seed = random.randint(0, 99999)
+    print(f"[INFO] Generating activations for {len(prompts)} prompt(s) | Seed: {seed}")
     hooks = register_named_hooks(pipe.transformer, prompts, seed)
 
     _ = pipe(
