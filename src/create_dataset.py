@@ -32,7 +32,7 @@ def create_callback(latents_by_ts, prompts, seed):
     def debug_callback_on_step_end(pipeline, step, timestep, callback_kwargs):
         global current_timestep
         latents = callback_kwargs["latents"]
-        #current_timestep = timestep.item() if isinstance(timestep, torch.Tensor) else timestep
+        current_timestep = timestep.item() if isinstance(timestep, torch.Tensor) else timestep
         for i, prompt in enumerate(prompts):
              latents_by_ts[current_timestep].append({
                 "step": step,
@@ -99,11 +99,14 @@ def sample_prompts(n_train, n_test, seed=42):
     random.shuffle(prompts)
     return prompts[:n_train], prompts[n_train:n_train + n_test]
 
-def generate_activations(prompts, pipe):
+def generate_activations(prompts, pipe, save_activations, save_latents):
     seed = random.randint(0, 99999)
     print(f"[INFO] Generating activations for {len(prompts)} prompt(s) | Seed: {seed}")
-    hooks = register_named_hooks(pipe.transformer, prompts, seed)
+    if save_activations:
+        hooks = register_named_hooks(pipe.transformer, prompts, seed)
 
+    callback_on_step_end=create_callback(latents_by_ts, prompts, seed) if save_latents else None
+    callback_on_step_end_tensor_inputs=["latents"] if save_latents else None
     _ = pipe(
         prompt=prompts,
         height=1024,
@@ -111,30 +114,38 @@ def generate_activations(prompts, pipe):
         guidance_scale=5.0,
         num_inference_steps=20,
         generator=torch.Generator(device="cuda").manual_seed(seed),
-        callback_on_step_end=create_callback(latents_by_ts, prompts, seed),
-        callback_on_step_end_tensor_inputs=["latents"]
+        callback_on_step_end= callback_on_step_end,
+        callback_on_step_end_tensor_inputs=callback_on_step_end_tensor_inputs
     )
     print(f"[INFO] Finished generation for {len(prompts)} prompt(s)")
-    for h in hooks:
-        h.remove()
+    if save_activations:
+        for h in hooks:
+            h.remove()
 
-def save_outputs(output_base, split):
+def save_outputs(output_base, split, save_activations, save_latents):
     print(f"[INFO] Saving activations for split: {split}")
     global all_activations, latents_by_ts
-    for timestep, layers in all_activations.items():
-        for layer_id, components in layers.items():
-            for component_type, records in components.items():
-                #print(f"timestep : {timestep}, layer id : {layer_id} component type: {component_type}")
-                out_path = os.path.join(output_base, split, "activations", f"timestep_{timestep:03d}", f"layer_{layer_id:02d}", f"{component_type}.pt")
-                os.makedirs(os.path.dirname(out_path), exist_ok=True)
-                torch.save(records, out_path)
+    if save_activations:
+        print("save activations")
+        for timestep, layers in all_activations.items():
+            for layer_id, components in layers.items():
+                for component_type, records in components.items():
+                    #print(f"timestep : {timestep}, layer id : {layer_id} component type: {component_type}")
+                    out_path = os.path.join(output_base, split, "activations", f"timestep_{timestep:03d}", f"layer_{layer_id:02d}", f"{component_type}.pt")
+                    os.makedirs(os.path.dirname(out_path), exist_ok=True)
+                    torch.save(records, out_path)
+
     print(f"[INFO] Saved all activations for split: {split}")
-    print(f"[INFO] Saving latents for split: {split}")
-    for timestep, sample_dict in latents_by_ts.items():
-        out_path = os.path.join(output_base, split, "latents", f"timestep_{timestep:03d}.pt")
-        os.makedirs(os.path.dirname(out_path), exist_ok=True)
-        torch.save(sample_dict, out_path)
-    print(f"[INFO] Saved all latents for split: {split}")
+
+    if save_latents:
+        print(f"[INFO] Saving latents for split: {split}")
+        print("save latents")
+        for timestep, sample_dict in latents_by_ts.items():
+            out_path = os.path.join(output_base, split, "latents", f"timestep_{timestep:03d}.pt")
+            os.makedirs(os.path.dirname(out_path), exist_ok=True)
+            torch.save(sample_dict, out_path)
+        print(f"[INFO] Saved all latents for split: {split}")
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--output_dir", type=str, required=True)
@@ -142,7 +153,11 @@ def main():
     parser.add_argument("--n_test", type=int, required=True)
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--batch_size", type=int, default=1)
+    parser.add_argument("--save_latents", action="store_true", help="Whether to save latents.")
+    parser.add_argument("--save_activations", action="store_true", help="Whether to save activations.")
     args = parser.parse_args()
+    print(f"args.save latents: {args.save_latents}")
+    print(f"args.save activations: {args.save_activations}")
     print("[INFO] Sampling prompts...")
     train_prompts, test_prompts = sample_prompts(args.n_train, args.n_test, args.seed)
     pipe = load_model()
@@ -150,17 +165,21 @@ def main():
     print("[INFO] Starting training generation...")
     for i in range(0, len(train_prompts), args.batch_size):
         batch = train_prompts[i:i + args.batch_size]
-        generate_activations(batch, pipe)
+        generate_activations(batch, pipe,  save_activations=args.save_activations, save_latents=args.save_latents)
         print(f"[INFO] Processing training batch {i // args.batch_size + 1}/{(len(train_prompts) + args.batch_size - 1) // args.batch_size}")
-    save_outputs(args.output_dir, split="train")
+    save_outputs(args.output_dir, split="train", save_activations=args.save_activations, save_latents=args.save_latents)
+    
     reset_globals()
 
     print("[INFO] Starting testing generation...")
     for i in range(0, len(test_prompts), args.batch_size):
         batch = test_prompts[i:i + args.batch_size]
         print(f"[INFO] Processing testing batch {i // args.batch_size + 1}/{(len(test_prompts) + args.batch_size - 1) // args.batch_size}")
-        generate_activations(batch, pipe)
-    save_outputs(args.output_dir, split="test")
+        generate_activations(batch, pipe, save_activations=args.save_activations, save_latents=args.save_latents)
+
+    save_outputs(args.output_dir, split="test", save_activations=args.save_activations, save_latents=args.save_latents)
+
     print("[INFO] Done.")
+
 if __name__ == "__main__":
     main()

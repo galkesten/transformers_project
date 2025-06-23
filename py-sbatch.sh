@@ -26,7 +26,7 @@
 # Parameters for sbatch
 #
 NUM_NODES=1
-NUM_CORES=2
+NUM_CORES=4
 NUM_GPUS=1
 JOB_NAME="baseline"
 MAIL_USER="galkesten@campus.technion.ac.il"
