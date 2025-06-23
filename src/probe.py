@@ -13,7 +13,7 @@ import torch.nn.functional as F
 # === Fixed Training Hyperparameters ===
 DEFAULT_LR = 1e-3
 DEFAULT_WEIGHT_DECAY = 1e-4
-DEFAULT_NUM_EPOCHS = 10
+DEFAULT_NUM_EPOCHS = 20
 DEFAULT_STEP_SIZE = 5
 DEFAULT_GAMMA = 0.5
 DEFAULT_GRADIENT_TYPE = "Vertical"
@@ -141,6 +141,7 @@ def evaluate_probe(probe, test_loader, target, save_dir, mae_out_path, spearman_
 
 # === CSV Logger ===
 def write_csv_line(path, header, row):
+    os.makedirs(os.path.dirname(path), exist_ok=True)
     write_header = not os.path.exists(path)
     with open(path, 'a', newline='') as f:
         writer = csv.writer(f)
