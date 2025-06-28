@@ -9,13 +9,14 @@ import csv
 from scipy.stats import spearmanr
 import matplotlib.pyplot as plt
 import torch.nn.functional as F
+from filelock import FileLock
 
 # === Fixed Training Hyperparameters ===
 DEFAULT_LR = 1e-3
 DEFAULT_WEIGHT_DECAY = 1e-4
 DEFAULT_NUM_EPOCHS = 20
 DEFAULT_STEP_SIZE = 5
-DEFAULT_GAMMA = 0.5
+DEFAULT_GAMMA = 0.1
 DEFAULT_GRADIENT_TYPE = "Vertical"
 
 # === Dataset ===
@@ -139,15 +140,19 @@ def evaluate_probe(probe, test_loader, target, save_dir, mae_out_path, spearman_
 
     print(f"[EVAL] MAE: {avg_mae:.6f} | Spearman: {avg_spearman:.6f}")
 
-# === CSV Logger ===
 def write_csv_line(path, header, row):
     os.makedirs(os.path.dirname(path), exist_ok=True)
-    write_header = not os.path.exists(path)
-    with open(path, 'a', newline='') as f:
-        writer = csv.writer(f)
-        if write_header:
-            writer.writerow(header)
-        writer.writerow(row)
+    lock_path = path + ".lock"
+    lock = FileLock(lock_path)
+
+    with lock:
+        write_header = not os.path.exists(path)
+        with open(path, 'a', newline='') as f:
+            writer = csv.writer(f)
+            if write_header:
+                writer.writerow(header)
+            writer.writerow(row)
+
 
 # === Main ===
 def main():
@@ -155,7 +160,7 @@ def main():
     parser.add_argument("--train_path", type=str, required=True)
     parser.add_argument("--test_path", type=str, required=True)
     parser.add_argument("--kernel_size", type=int, default=5)
-    parser.add_argument("--batch_size", type=int, default=8)
+    parser.add_argument("--batch_size", type=int, default=16)
     parser.add_argument("--models_output_folder", type=str, required=True)
     parser.add_argument("--test_output_folder", type=str, required=True)
     parser.add_argument("--test_results_file_path_mae", type=str, required=True)
@@ -173,6 +178,10 @@ def main():
 
     print(f"Train dataset: {len(train_dataset)} samples")
     first_batch = next(iter(train_loader))
+    print(f"Train batch shape: {first_batch.shape}")
+
+    print(f"Train dataset: {len(test_dataset)} samples")
+    first_batch = next(iter(test_loader))
     print(f"Train batch shape: {first_batch.shape}")
 
     probe, target = create_probe_and_target(train_loader, args.kernel_size, args.gradient_type, device)
