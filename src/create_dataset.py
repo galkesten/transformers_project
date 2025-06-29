@@ -209,7 +209,7 @@ def generate_activations(prompts, pipe, save_activations, save_latents, save_pos
         for h in hooks:
             h.remove()
 
-def save_outputs(output_base, split, save_activations, save_latents, save_post_final_layer_norm_latents):
+def save_outputs(output_base, split, save_activations, save_latents, save_post_final_layer_norm_latents, accumulate_counter):
     
     global all_activations, latents_by_ts
     if save_activations:
@@ -218,7 +218,7 @@ def save_outputs(output_base, split, save_activations, save_latents, save_post_f
             for layer_id, components in layers.items():
                 for component_type, records in components.items():
                     #print(f"timestep : {timestep}, layer id : {layer_id} component type: {component_type}")
-                    out_path = os.path.join(output_base, split, "activations", f"timestep_{timestep:03d}", f"layer_{layer_id:02d}", f"{component_type}.pt")
+                    out_path = os.path.join(output_base, split, "activations", f"timestep_{timestep:03d}", f"layer_{layer_id:02d}", f"{component_type}_accumulate_{accumulate_counter}.pt")
                     os.makedirs(os.path.dirname(out_path), exist_ok=True)
                     torch.save(records, out_path)
 
@@ -226,9 +226,8 @@ def save_outputs(output_base, split, save_activations, save_latents, save_post_f
 
     if save_latents:
         print(f"[INFO] Saving latents for split: {split}")
-        print("save latents")
         for timestep, sample_dict in latents_by_ts.items():
-            out_path = os.path.join(output_base, split, "latents", f"timestep_{timestep:03d}.pt")
+            out_path = os.path.join(output_base, split, "latents", f"timestep_{timestep:03d}_accumulate_{accumulate_counter}.pt")
             os.makedirs(os.path.dirname(out_path), exist_ok=True)
             torch.save(sample_dict, out_path)
         print(f"[INFO] Saved all latents for split: {split}")
@@ -236,7 +235,7 @@ def save_outputs(output_base, split, save_activations, save_latents, save_post_f
     if save_post_final_layer_norm_latents:
         print(f"[INFO] Saving post final layer norm latents for split: {split}")
         for timestep, sample_dict in post_final_layer_norm_latents_by_ts.items():
-            out_path = os.path.join(output_base, split, "post_layer_norm_latents", f"timestep_{timestep:03d}.pt")
+            out_path = os.path.join(output_base, split, "post_layer_norm_latents", f"timestep_{timestep:03d}_accumulate_{accumulate_counter}.pt")
             os.makedirs(os.path.dirname(out_path), exist_ok=True)
             torch.save(sample_dict, out_path)
         print(f"[INFO] Saved post layer norm latents for split: {split}")
@@ -269,18 +268,34 @@ def main():
     timesteps = get_timesteps(pipe=pipe, timesteps_step_size=args.timesteps_step)
     layers = get_layers(pipe=pipe.transformer, layers_step_size=args.layers_step)
     
+    accumulate = 0
+    accumulate_counter = 0
     print("[INFO] Starting training generation...")
     for i in range(0, len(train_prompts), args.batch_size):
+        print(f"[INFO] Processing training batch {i // args.batch_size + 1}/{(len(train_prompts) + args.batch_size - 1) // args.batch_size}")
         batch = train_prompts[i:i + args.batch_size]
         generate_activations(batch, pipe,  save_activations=args.save_activations, save_latents=args.save_latents,
                              save_post_final_layer_norm_latents=args.save_post_final_layer_norm_latents,
                              layers=layers,
                              timesteps=timesteps,
                              component_type=args.component_type)
-        print(f"[INFO] Processing training batch {i // args.batch_size + 1}/{(len(train_prompts) + args.batch_size - 1) // args.batch_size}")
-    save_outputs(args.output_dir, split="train", save_activations=args.save_activations, save_latents=args.save_latents, save_post_final_layer_norm_latents=args.save_post_final_layer_norm_latents)
-    
+        accumulate += len(batch)
+        if accumulate >= 500:
+            accumulate_counter = accumulate_counter + 1
+            save_outputs(args.output_dir, split="train", save_activations=args.save_activations, 
+                         save_latents=args.save_latents, save_post_final_layer_norm_latents=args.save_post_final_layer_norm_latents,
+                         accumulate_counter=accumulate_counter)
+            accumulate = 0
+            reset_globals()
+
+    if accumulate != 0:
+        accumulate_counter = accumulate_counter + 1
+        save_outputs(args.output_dir, split="train", save_activations=args.save_activations, 
+                         save_latents=args.save_latents, save_post_final_layer_norm_latents=args.save_post_final_layer_norm_latents,
+                         accumulate_counter=accumulate_counter)
     reset_globals()
+    accumulate = 0
+    accumulate_counter = 0
 
     print("[INFO] Starting testing generation...")
     for i in range(0, len(test_prompts), args.batch_size):
@@ -291,9 +306,23 @@ def main():
                              layers=layers,
                              timesteps=timesteps,
                              component_type=args.component_type)
-
-    save_outputs(args.output_dir, split="test", save_activations=args.save_activations, save_latents=args.save_latents, save_post_final_layer_norm_latents=args.save_post_final_layer_norm_latents)
-
+        accumulate += len(batch)
+        if accumulate >= 500:
+            accumulate_counter = accumulate_counter + 1
+            save_outputs(args.output_dir, split="test", save_activations=args.save_activations, 
+                         save_latents=args.save_latents, save_post_final_layer_norm_latents=args.save_post_final_layer_norm_latents,
+                         accumulate_counter=accumulate_counter)
+            accumulate = 0
+            reset_globals()
+    
+    if accumulate != 0:
+        accumulate_counter = accumulate_counter + 1
+        save_outputs(args.output_dir, split="test", save_activations=args.save_activations, 
+                         save_latents=args.save_latents, save_post_final_layer_norm_latents=args.save_post_final_layer_norm_latents,
+                         accumulate_counter=accumulate_counter)
+    reset_globals()
+    accumulate = 0
+    accumulate_counter = 0
     print("[INFO] Done.")
 
 if __name__ == "__main__":

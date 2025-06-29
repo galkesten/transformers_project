@@ -20,7 +20,7 @@ python src/create_dataset.py \
   --save_latents \
   --timesteps_step 1
 
-./py-sbatch.sh src/create_dataset.py \
+python src/create_dataset.py \
   --output_dir sana_outputs2 \
   --n_train 10 \
   --n_test 10 \
@@ -66,9 +66,9 @@ python src/create_dataset.py \
 
 
   python src/test_create_dataset.py\
-  --post_layernorm_latents_file sana_outputs2/train/post_layer_norm_latents/timestep_136.pt \
-  --output_dir sana_outputs2 \
-  --split train 
+  --post_layernorm_latents_file sana_outputs2/test/post_layer_norm_latents/timestep_136_accumulate_2.pt \
+  --output_dir sana_outputs2 
+
 
 
   python src/test_create_dataset.py\
@@ -80,10 +80,7 @@ python src/create_dataset.py \
 
     python src/test_create_dataset.py \
     --output_dir sana_outputs2 \
-    --split train \
-    --timestep 499 \
-    --layer 10 \
-    --component mix_ffn
+    ----activations_file
 
 
     python src/test_create_dataset.py \
