@@ -34,14 +34,14 @@ MAIL_TYPE=ALL # Valid values are NONE, BEGIN, END, FAIL, REQUEUE, ALL
 
 ###
 # Conda parameters
-#
+# 	# -x nlp-2080-1,nlp-2080-2,nlp-a40-1 \
 CONDA_HOME=$HOME/miniconda3
 CONDA_ENV=sana
 
 sbatch \
 	-p nlp\
 	-A nlp\
-	-x nlp-2080-1,nlp-2080-2,nlp-a40-1 \
+	-w nlp-h200-1 \
 	-c $NUM_CORES \
 	--gres=gpu:$NUM_GPUS \
 	--job-name $JOB_NAME \

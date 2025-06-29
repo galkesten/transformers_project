@@ -11,6 +11,19 @@ def inspect_latents_file(file_path):
         print(f"    Seed: {entry['seed']}")
         print(f"    Step: {entry['step']}, Timestep: {entry['timestep']}")
         print(f"    Latents shape: {entry['latents'].shape}")
+
+
+def inspect_post_layer_norms_latents_file(file_path):
+    print(f"\n== Inspecting latents file: {file_path} ==")
+    data = torch.load(file_path)
+    for i, entry in enumerate(data):
+        print(f"  Sample {i}:")
+        print(f"    Prompt: {entry['prompt']}")
+        print(f"    Seed: {entry['seed']}")
+        print(f"    Guided shape: {entry['guided'].shape}")
+        print(f"    Unguided shape: {entry['unguided'].shape}")
+        print(entry['guided'])
+        print(entry['unguided'])
         
 def inspect_activation_file(file_path):
     print(f"\n== Inspecting activation file: {file_path} ==")
@@ -33,11 +46,14 @@ if __name__ == "__main__":
     parser.add_argument("--layer", type=int, help="Layer to inspect activations from")
     parser.add_argument("--component", type=str, help="Component type (self_attn, cross_attn, mix_ffn)")
     parser.add_argument("--latents_file", type=str, help="Path to specific latents .pt file")
+    parser.add_argument("--post_layernorm_latents_file", type=str, help="Path to specific latents .pt file")
     args = parser.parse_args()
 
     if args.latents_file:
         inspect_latents_file(args.latents_file)
 
+    if args.post_layernorm_latents_file:
+        inspect_post_layer_norms_latents_file(args.post_layernorm_latents_file)
     if args.timestep is not None and args.layer is not None and args.component:
         act_path = os.path.join(
             args.output_dir,
