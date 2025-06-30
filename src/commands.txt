@@ -66,8 +66,8 @@ python src/create_dataset.py \
 
 
   python src/test_create_dataset.py\
-  --post_layernorm_latents_file sana_outputs2/test/post_layer_norm_latents/timestep_136_accumulate_2.pt \
-  --output_dir sana_outputs2 
+  --post_layernorm_latents_file sana_outputs/train/post_layer_norm_latents/timestep_136_accumulate_13.pt \
+  --output_dir sana_outputs
 
 
 
@@ -112,14 +112,14 @@ python src/create_dataset.py \
     --n_test 1000 \
     --batch_size 4 \
     --save_post_final_layer_norm_latents \
-    --timesteps_step 1
+    --timesteps_step 5
 
 
 
 ./py-sbatch.sh src/create_dataset.py \
   --output_dir sana_outputs \
-  --n_train 10000 \
-  --n_test 1000 \
+  --n_train 5000 \
+  --n_test 500 \
   --batch_size 4 \
   --save_activations \
   --component_type mix_ffn \
@@ -128,8 +128,8 @@ python src/create_dataset.py \
 
   ./py-sbatch.sh src/create_dataset.py \
   --output_dir sana_outputs \
-  --n_train 10000 \
-  --n_test 1000 \
+  --n_train 5000 \
+  --n_test 500 \
   --batch_size 4 \
   --save_activations \
   --component_type self_attn \
@@ -139,10 +139,52 @@ python src/create_dataset.py \
 
   ./py-sbatch.sh src/create_dataset.py \
   --output_dir sana_outputs \
-  --n_train 10000 \
-  --n_test 1000 \
+  --n_train 5000 \
+  --n_test 500 \
   --batch_size 4 \
   --save_activations \
   --component_type cross_attn \
   --timesteps_step 5 \
   --layers_step 5
+
+
+
+./py-sbatch.sh src/probe.py \
+  --latents_folder_train sana_outputs/train/post_layer_norm_latents \
+  --latents_folder_test sana_outputs/test/post_layer_norm_latents \
+  --timestep 999 \
+  --accumulate_mode \
+  --latent_type guided \
+  --kernel_size 3 \
+  --batch_size 16 \
+  --models_output_folder sana_outputs2/probes \
+  --test_output_folder sana_outputs2/evals \
+  --test_results_file_path_mae sana_outputs2/results_mae.csv \
+  --test_results_file_path_spearman sana_outputs2/results_spearman.csv \
+  --gradient_type Vertical \
+  --accumulate_size 500
+
+
+
+python src/probe.py \
+  --latents_folder_train sana_outputs/train/post_layer_norm_latents \
+  --latents_folder_test sana_outputs/test/post_layer_norm_latents \
+  --timestep 136 \
+  --accumulate_mode \
+  --latent_type guided \
+  --kernel_size 1 \
+  --batch_size 16 \
+  --models_output_folder sana_outputs2/probes \
+  --test_output_folder sana_outputs2/evals \
+  --test_results_file_path_mae sana_outputs2/results_mae.csv \
+  --test_results_file_path_spearman sana_outputs2/results_spearman.csv \
+  --gradient_type Vertical \
+  --accumulate_size 500
+
+
+
+
+python src/run_all_probes.py --base_folder sana_outputs --kernel_size 3 --gradient_type Gaussian --latents_name post_layer_norm_latents
+
+
+

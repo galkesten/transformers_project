@@ -251,11 +251,17 @@ def main():
     parser.add_argument("--save_activations", action="store_true", help="Whether to save activations.")
     parser.add_argument("--save_post_final_layer_norm_latents", action="store_true", help="Whether to save post-final-layer-norm latents.")
     parser.add_argument("--layers_step", type=int, default=5, help="Layer step size")
-    parser.add_argument("--timesteps_step", type=int, default=1)
+    parser.add_argument("--timesteps_step", type=int, default=-1)
     parser.add_argument("--component_type", type=str, choices=["self_attn", "cross_attn", "mix_ffn"], default="mix_ffn")
+    parser.add_argument("--timesteps", type=int, nargs="+", default=[])
+
 
     args = parser.parse_args()
 
+    if len(args.timesteps) > 0 and args.timesteps_step > 0:
+        raise ValueError("you cant use both timesteps step and timesteps")
+    if len(args.timesteps) == 0 and args.timesteps_step <= 0:
+        raise ValueError("you should specify timesteps step or timesteps")
     print(f"args.save latents: {args.save_latents}")
     print(f"args.save activations: {args.save_activations}")
     print(f"args.save_post_final_layer_norm_latents: {args.save_post_final_layer_norm_latents}")
@@ -265,9 +271,18 @@ def main():
 
     pipe = load_model()
 
-    timesteps = get_timesteps(pipe=pipe, timesteps_step_size=args.timesteps_step)
+
+    timesteps = (
+    get_timesteps(pipe=pipe, timesteps_step_size=args.timesteps_step)
+    if args.timesteps_step > 0
+    else args.timesteps
+    
+    )
     layers = get_layers(pipe=pipe.transformer, layers_step_size=args.layers_step)
     
+    print(f"Time steps : {timesteps}")
+    print(f"Layers : {layers}")
+
     accumulate = 0
     accumulate_counter = 0
     print("[INFO] Starting training generation...")

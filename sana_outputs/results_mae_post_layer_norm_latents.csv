@@ -1,0 +1,13 @@
+timestep,kernel,gradient_type,mae
+136,1,Vertical,0.12405567
+749,1,Vertical,0.10747095
+749,3,Vertical,0.07875136
+999,1,Vertical,0.05134522
+999,3,Vertical,0.047911968
+899,1,Vertical,0.084982775
+899,3,Vertical,0.06318747
+136,3,Vertical,0.08919011
+499,3,Vertical,0.085333884
+499,1,Vertical,0.12014984
+136,1,Horizontal,0.16410957
+499,1,Horizontal,0.15446135

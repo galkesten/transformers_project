@@ -15,9 +15,16 @@ from filelock import FileLock
 DEFAULT_LR = 1e-3
 DEFAULT_WEIGHT_DECAY = 1e-4
 DEFAULT_NUM_EPOCHS = 20
-DEFAULT_STEP_SIZE = 5
+DEFAULT_STEP_SIZE = 30
 DEFAULT_GAMMA = 0.1
 DEFAULT_GRADIENT_TYPE = "Vertical"
+
+
+def extract_accumulate_number(filename):
+    # This assumes your pattern is timestep_XXX_accumulate_N.pt
+    m = re.search(r'_accumulate_(\d+)\.pt$', filename)
+    return int(m.group(1)) if m else -1
+
 
 # === Dataset ===
 class LatentTimestepDataset(Dataset):
@@ -30,6 +37,105 @@ class LatentTimestepDataset(Dataset):
 
     def __getitem__(self, idx):
         return self.latents[idx]
+
+class LatentFlexibleDataset(Dataset):
+    def __init__(
+        self, 
+        folder, 
+        timestep, 
+        accumulate_mode=False, 
+        latent_type='latents', 
+        accumulate_size=500
+    ):
+        """
+        folder: directory containing .pt files
+        timestep: which timestep to load (int)
+        accumulate_mode: True if using accumulate files, else single file per timestep
+        latent_type: which latent to return ('latents', 'guided', 'unguided', or 'both')
+        accumulate_size: number of examples per accumulate file (except last)
+        """
+        self.folder = os.path.expanduser(folder)
+        self.timestep = timestep
+        self.accumulate_mode = accumulate_mode
+        self.latent_type = latent_type
+
+        if not accumulate_mode:
+            file = os.path.join(self.folder, f'timestep_{timestep}.pt')
+            if not os.path.exists(file):
+                raise FileNotFoundError(f"File {file} not found.")
+            self.data = torch.load(file, map_location='cpu')
+            self.length = len(self.data)
+        else:
+            self.file_list = sorted(
+                [os.path.join(self.folder, f)
+                for f in os.listdir(self.folder)
+                if f.startswith(f'timestep_{timestep}_accumulate_') and f.endswith('.pt')],
+                key=extract_accumulate_number
+            )
+            N = len(self.file_list)
+            if N == 0:
+                raise FileNotFoundError(f"No accumulate files found for timestep {timestep} in {self.folder}")
+
+            if N == 1:
+                first_len = last_len = len(torch.load(self.file_list[0], map_location='cpu'))
+            else:
+                first_len = accumulate_size  # Assume
+                last_len = accumulate_size   # Assume
+                try:
+                    first_len = len(torch.load(self.file_list[0], map_location='cpu'))
+                    last_len = len(torch.load(self.file_list[-1], map_location='cpu'))
+                except Exception:
+                    pass  # fallback to provided accumulate_size
+
+            self.lengths = [first_len] * (N - 1) + [last_len]
+            self.offsets = [0]
+            for l in self.lengths:
+                self.offsets.append(self.offsets[-1] + l)
+            self.total = self.offsets[-1]
+            self._cached_file_idx = None
+            self._cached_data = None
+
+    def __len__(self):
+        if not self.accumulate_mode:
+            return self.length
+        return self.total
+
+    def __getitem__(self, idx):
+        if not self.accumulate_mode:
+            #print(f"[DEBUG] Single-file mode: Loading index {idx} from self.data")
+            entry = self.data[idx]
+        else:
+            file_idx = None
+            for i in range(len(self.offsets) - 1):
+                if self.offsets[i] <= idx < self.offsets[i + 1]:
+                    file_idx = i
+                    break
+            if file_idx is None:
+                raise IndexError(f"Index {idx} out of range! Offsets: {self.offsets}")
+
+            local_idx = idx - self.offsets[file_idx]
+            #print(f"[DEBUG] Accumulate mode: idx {idx} is in file {file_idx} ({self.file_list[file_idx]}), local_idx {local_idx}")
+            if self._cached_file_idx != file_idx:
+                print(f"[DEBUG] Loading new file into cache: {self.file_list[file_idx]}", flush=True)
+                self._cached_data = torch.load(self.file_list[file_idx], map_location='cpu')
+                self._cached_file_idx = file_idx
+            entry = self._cached_data[local_idx]
+
+        # Add a print for what kind of tensor is being returned
+        #print(f"[DEBUG] Returning latent_type: {self.latent_type}")
+        if self.latent_type == 'latents':
+            return entry['latents']
+        elif self.latent_type == 'guided':
+            return entry['guided']
+        elif self.latent_type == 'unguided':
+            return entry['unguided']
+        elif self.latent_type == 'both':
+            return torch.cat([entry['guided'], entry['unguided']], dim=0)
+        else:
+            raise ValueError(f"Unknown latent_type: {self.latent_type}")
+
+
+        
 
 def extract_timestep_from_filename(file_path):
     match = re.search(r'timestep_(\d+)', os.path.basename(file_path))
@@ -63,7 +169,7 @@ def generate_gradient_map(H, W, map_type):
 
 # === Probe + Target Creation ===
 def create_probe_and_target(train_loader, kernel_size, gradient_type, device):
-    sample = next(iter(train_loader)).to(device)
+    sample = next(iter(train_loader)).to(device).float()
     B, C, H, W = sample.shape
     probe = nn.Conv2d(C, 1, kernel_size=(kernel_size, kernel_size), stride=1, padding=0).to(device)
     nn.init.xavier_uniform_(probe.weight)
@@ -84,8 +190,12 @@ def train_probe(probe, train_loader, target, device):
 
     for epoch in range(DEFAULT_NUM_EPOCHS):
         total_loss = 0.0
+        i = 0
         for batch in train_loader:
-            batch = batch.to(device)
+            i = i+1 
+            batch = batch.to(device).float()
+            #print("Latents: min", batch.min().item(), "max",batch.max().item(), "mean", batch.mean().item(), "std", batch.std().item())
+            #print("Target: min", target.min().item(), "max", target.max().item(), "mean", target.mean().item(), "std", target.std().item())
             B = batch.size(0)
             optimizer.zero_grad()
             output = probe(batch)
@@ -94,7 +204,8 @@ def train_probe(probe, train_loader, target, device):
             optimizer.step()
             total_loss += loss.item()
         scheduler.step()
-        print(f"Epoch {epoch+1}/{DEFAULT_NUM_EPOCHS} | Loss: {total_loss:.4f}")
+        avg_loss = total_loss / i
+        print(f"Epoch {epoch+1}/{DEFAULT_NUM_EPOCHS} | Avg Loss per batch: {avg_loss:.4f}", flush=True)
 
 # === Evaluation ===
 def evaluate_probe(probe, test_loader, target, save_dir, mae_out_path, spearman_out_path, gradient_type, device, num_examples_to_save=5):
@@ -108,7 +219,7 @@ def evaluate_probe(probe, test_loader, target, save_dir, mae_out_path, spearman_
 
     with torch.no_grad():
         for i, batch in enumerate(test_loader):
-            batch = batch.to(device)
+            batch = batch.to(device).float()
             B = batch.size(0)
             preds = probe(batch)
             truth = target.expand(B, -1, -1, -1)
@@ -138,7 +249,7 @@ def evaluate_probe(probe, test_loader, target, save_dir, mae_out_path, spearman_
     write_csv_line(spearman_out_path, ["timestep", "kernel", "gradient_type", "spearman"],
                 [timestep, probe.kernel_size[0], gradient_type, avg_spearman])
 
-    print(f"[EVAL] MAE: {avg_mae:.6f} | Spearman: {avg_spearman:.6f}")
+    print(f"[EVAL] MAE: {avg_mae:.6f} | Spearman: {avg_spearman:.6f}", flush=True)
 
 def write_csv_line(path, header, row):
     os.makedirs(os.path.dirname(path), exist_ok=True)
@@ -157,8 +268,11 @@ def write_csv_line(path, header, row):
 # === Main ===
 def main():
     parser = argparse.ArgumentParser(description="Train linear probe on latent features")
-    parser.add_argument("--train_path", type=str, required=True)
-    parser.add_argument("--test_path", type=str, required=True)
+    parser.add_argument("--latents_folder_train", type=str, required=True)
+    parser.add_argument("--latents_folder_test", type=str, required=True)
+    parser.add_argument("--timestep", type=int, required=True)
+    parser.add_argument("--accumulate_mode", action="store_true", help="Use accumulate files")
+    parser.add_argument("--latent_type", type=str, default="latents", choices=["latents", "guided", "unguided", "both"])
     parser.add_argument("--kernel_size", type=int, default=5)
     parser.add_argument("--batch_size", type=int, default=16)
     parser.add_argument("--models_output_folder", type=str, required=True)
@@ -166,23 +280,25 @@ def main():
     parser.add_argument("--test_results_file_path_mae", type=str, required=True)
     parser.add_argument("--test_results_file_path_spearman", type=str, required=True)
     parser.add_argument("--gradient_type", type=str, default="Vertical", choices=["Vertical", "Horizontal", "Gaussian"])
+    parser.add_argument("--accumulate_size", type=int, default=500, help="Number of samples per accumulate file (default 500)")
+
     args = parser.parse_args()
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-    train_dataset = load_dataset(args.train_path)
-    test_dataset = load_dataset(args.test_path)
+    train_dataset = LatentFlexibleDataset(args.latents_folder_train, args.timestep, args.accumulate_mode, args.latent_type)
+    test_dataset = LatentFlexibleDataset(args.latents_folder_test, args.timestep, args.accumulate_mode, args.latent_type)
 
-    train_loader = DataLoader(train_dataset, batch_size=args.batch_size, shuffle=True)
+    train_loader = DataLoader(train_dataset, batch_size=args.batch_size, shuffle=False)
     test_loader = DataLoader(test_dataset, batch_size=args.batch_size, shuffle=False)
 
-    print(f"Train dataset: {len(train_dataset)} samples")
+    print(f"Train dataset: {len(train_dataset)} samples", flush=True)
     first_batch = next(iter(train_loader))
-    print(f"Train batch shape: {first_batch.shape}")
+    print(f"Train batch shape: {first_batch.shape}", flush=True)
 
-    print(f"Train dataset: {len(test_dataset)} samples")
+    print(f"Test dataset: {len(test_dataset)} samples", flush=True)
     first_batch = next(iter(test_loader))
-    print(f"Train batch shape: {first_batch.shape}")
+    print(f"Test batch shape: {first_batch.shape}", flush=True)
 
     probe, target = create_probe_and_target(train_loader, args.kernel_size, args.gradient_type, device)
     train_probe(probe, train_loader, target, device)
@@ -191,7 +307,7 @@ def main():
     timestep = getattr(train_dataset, "timestep", "unknown")
     model_path = os.path.join(args.models_output_folder, f"probe_timestep_{timestep}_kernel_{args.kernel_size}_grad_{args.gradient_type}.pt")
     torch.save(probe.state_dict(), model_path)
-    print(f"[SAVE] Probe model saved to {model_path}")
+    print(f"[SAVE] Probe model saved to {model_path}", flush=True)
 
     evaluate_probe(probe=probe, test_loader=test_loader, target=target, save_dir=args.test_output_folder,
                    mae_out_path=args.test_results_file_path_mae, spearman_out_path=args.test_results_file_path_spearman,

@@ -2,11 +2,16 @@ import torch
 import os
 import argparse
 
+#change it to float 16 
+
+
 def inspect_latents_file(file_path):
     print(f"\n== Inspecting latents file: {file_path} ==")
     data = torch.load(file_path)
     print(len(data))
     for i, entry in enumerate(data):
+        if i>=10:
+            break
         print(f"  Sample {i}:")
         print(f"    Prompt: {entry['prompt']}")
         print(f"    Seed: {entry['seed']}")
@@ -19,6 +24,8 @@ def inspect_post_layer_norms_latents_file(file_path):
     data = torch.load(file_path)
     print(len(data))
     for i, entry in enumerate(data):
+        if i>=10:
+            break
         print(f"  Sample {i}:")
         print(f"    Prompt: {entry['prompt']}")
         print(f"    Seed: {entry['seed']}")
@@ -34,6 +41,8 @@ def inspect_activation_file(file_path):
     print(len(records))
     print(f"  Number of records: {len(records)}")
     for i, r in enumerate(records[:3]):
+        if i>=10:
+            break
         print(f"  Record {i}:")
         print(f"    Prompt: {r['prompt']}")
         print(f"    Seed: {r['seed']}")
