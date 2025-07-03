@@ -226,6 +226,11 @@ python src/create_figures_layers.py --csv sana_outputs/results_mae_activations.c
   --n_test 1000 \
   --batch_size 4 \
   --save_activations \
-  --component_type self_attn \
+  --component_type cross_attn \
   --layers_step 5 \
   --timesteps 999
+
+
+
+
+  python src/run_all_probes.py --base_folder sana_outputs --kernel_size 3 --gradient_type Horizontal --latents_name activations
