@@ -80,7 +80,7 @@ python src/create_dataset.py \
 
     python src/test_create_dataset.py \
     --output_dir sana_outputs2 \
-    ----activations_file
+    --activations_file sana_outputs/train/activations/timestep_999/layer_00/mix_ffn_accumulate_19.pt
 
 
     python src/test_create_dataset.py \
@@ -188,3 +188,44 @@ python src/run_all_probes.py --base_folder sana_outputs --kernel_size 3 --gradie
 
 
 
+./py-sbatch.sh src/create_dataset.py \
+  --output_dir sana_outputs \
+  --n_train 10000 \
+  --n_test 1000 \
+  --batch_size 4 \
+  --save_activations \
+  --component_type mix_ffn \
+  --layers_step 5 \
+  --timesteps 999
+
+
+
+  python src/create_figures.py \
+    --csv sana_outputs/results_mae_post_layer_norm_latents.csv \
+    --x timestep --y mae \
+    --title_col gradient_type --line_group_col kernel \
+    --out figures/mae_by_gradient_type.png
+
+python src/create_figures.py \
+    --csv sana_outputs/results_spearman_post_layer_norm_latents.csv \
+    --x timestep --y spearman \
+    --title_col gradient_type --line_group_col kernel \
+    --out figures/spearman_by_gradient_type.png
+
+
+python src/create_figures_layers.py --csv sana_outputs/results_spearman_activations.csv --metric spearman --out_folder figures
+
+
+python src/create_figures_layers.py --csv sana_outputs/results_mae_activations.csv --metric mae --out_folder figures
+
+
+
+./py-sbatch.sh src/create_dataset.py \
+  --output_dir sana_outputs \
+  --n_train 10000 \
+  --n_test 1000 \
+  --batch_size 4 \
+  --save_activations \
+  --component_type self_attn \
+  --layers_step 5 \
+  --timesteps 999
