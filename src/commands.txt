@@ -233,4 +233,4 @@ python src/create_figures_layers.py --csv sana_outputs/results_mae_activations.c
 
 
 
-  python src/run_all_probes.py --base_folder sana_outputs --kernel_size 3 --gradient_type Horizontal --latents_name activations
+  python src/run_all_probes.py --base_folder sana_outputs --kernel_size 3 --gradient_type Gaussian --latents_name activations

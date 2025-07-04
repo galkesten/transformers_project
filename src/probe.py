@@ -344,7 +344,14 @@ def main():
 
     os.makedirs(args.models_output_folder, exist_ok=True)
     timestep = getattr(train_dataset, "timestep", "unknown")
-    model_path = os.path.join(args.models_output_folder, f"probe_timestep_{timestep}_kernel_{args.kernel_size}_grad_{args.gradient_type}.pt")
+    model_name = f"probe_timestep_{timestep}_kernel_{args.kernel_size}_grad_{args.gradient_type}"
+    if args.layer is not None:
+        model_name += f"_layer_{args.layer}"
+    if args.component:
+        model_name += f"_component_{args.component}"
+    model_name+= ".pt"
+    print(model_name)
+    model_path = os.path.join(args.models_output_folder, model_name)
     torch.save(probe.state_dict(), model_path)
     print(f"[SAVE] Probe model saved to {model_path}", flush=True)
 

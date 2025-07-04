@@ -14,6 +14,7 @@ def main():
     parser.add_argument('--csv', type=str, required=True, help='Path to input CSV')
     parser.add_argument('--metric', type=str, required=True, help='Metric column to plot (e.g., mae, spearman)')
     parser.add_argument('--out_folder', type=str, required=True, help='Output folder to save the figure')
+    parser.add_argument('--kernel', type=int, required=True)
     args = parser.parse_args()
 
     if not os.path.isdir(args.out_folder):
@@ -29,7 +30,7 @@ def main():
     df = df.sort_values('layer_num')
 
     gradient_types = df['gradient_type'].unique()
-    kernels = sorted(df['kernel'].unique())
+    df = df[df['kernel'] == args.kernel]
     components = df['component'].unique()
 
     fig, axes = plt.subplots(1, len(gradient_types), figsize=(6*len(gradient_types), 5), sharey=True)
@@ -38,16 +39,15 @@ def main():
 
     for ax, grad in zip(axes, gradient_types):
         grad_df = df[df['gradient_type'] == grad]
-        for kernel in kernels:
-            for comp in components:
-                subset = grad_df[(grad_df['kernel'] == kernel) & (grad_df['component'] == comp)]
-                if subset.empty:
-                    continue
-                ax.plot(
-                    subset['layer_num'],
-                    subset[args.metric],
-                    marker='o',
-                    label=f'Kernel {kernel}, {comp}'
+        for comp in components:
+            subset = grad_df[(grad_df['kernel'] == args.kernel) & (grad_df['component'] == comp)]
+            if subset.empty:
+                continue
+            ax.plot(
+                subset['layer_num'],
+                subset[args.metric],
+                marker='o',
+                label=f'Kernel {args.kernel}, {comp}'
                 )
         ax.set_title(f"Gradient: {grad}")
         ax.set_xlabel("Layer")
