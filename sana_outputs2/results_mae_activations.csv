@@ -1,0 +1,4 @@
+timestep,kernel,layer,component,gradient_type,mae
+999,1,layer_19,cross_attn,Gaussian,0.21239571
+999,3,layer_19,self_attn,Gaussian,1820.4948
+999,1,layer_19,self_attn,Gaussian,577.2671

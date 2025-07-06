@@ -200,17 +200,33 @@ python src/run_all_probes.py --base_folder sana_outputs --kernel_size 3 --gradie
 
 
 
-  python src/create_figures.py \
+python src/create_figures.py \
     --csv sana_outputs/results_mae_post_layer_norm_latents.csv \
     --x timestep --y mae \
     --title_col gradient_type --line_group_col kernel \
-    --out figures/mae_by_gradient_type.png
+    --out figures/mae_by_gradient_type.png \
+    --super_title "Mean Absolute Error Across Timesteps" \
+    --invert_x
+
 
 python src/create_figures.py \
     --csv sana_outputs/results_spearman_post_layer_norm_latents.csv \
     --x timestep --y spearman \
     --title_col gradient_type --line_group_col kernel \
-    --out figures/spearman_by_gradient_type.png
+    --out figures/spearman_by_gradient_type.png \
+    --super_title "Spearman Correlation Across Timesteps" \
+    --invert_x
+
+
+
+python src/create_figures.py \
+    --csv sana_outputs/mae_results_32C_latents.csv \
+    --x timestep --y mae \
+    --title_col gradient_type --line_group_col kernel \
+    --out figures/mae_by_gradient_type_32C.png \
+    --super_title "Mean Absolute Error Across Timesteps" \
+    --invert_x
+
 
 
 python src/create_figures_layers.py --csv sana_outputs/results_spearman_activations.csv --metric spearman --out_folder figures
@@ -234,3 +250,34 @@ python src/create_figures_layers.py --csv sana_outputs/results_mae_activations.c
 
 
   python src/run_all_probes.py --base_folder sana_outputs --kernel_size 3 --gradient_type Gaussian --latents_name activations
+
+
+
+./py-sbatch.sh src/probe.py \
+  --latents_folder_train sana_outputs/train/activations \
+  --latents_folder_test sana_outputs/test/activations \
+  --timestep 999 \
+  --accumulate_mode \
+  --latent_type guided \
+  --kernel_size 3 \
+  --batch_size 16 \
+  --models_output_folder sana_outputs2/models \
+  --test_output_folder sana_outputs2/test_outputs \
+  --test_results_file_path_mae sana_outputs2/results_mae_activations.csv \
+  --test_results_file_path_spearman sana_outputs2/results_spearman_activations.csv \
+  --gradient_type Gaussian \
+  --accumulate_size 500 \
+  --layer layer_19 \
+  --component self_attn
+
+
+
+./py-sbatch.sh src/create_dataset.py \
+  --output_dir sana_outputs \
+  --n_train 10000 \
+  --n_test 1000 \
+  --batch_size 4 \
+  --save_activations \
+  --component_type self_attn \
+  --layers_step 5 \
+  --timesteps 999

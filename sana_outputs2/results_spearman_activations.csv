@@ -1,0 +1,4 @@
+timestep,kernel,layer,component,gradient_type,spearman
+999,1,layer_19,cross_attn,Gaussian,0.02050392623447773
+999,3,layer_19,self_attn,Gaussian,0.0504731985073613
+999,1,layer_19,self_attn,Gaussian,-0.1399346712210693

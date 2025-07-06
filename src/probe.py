@@ -19,12 +19,21 @@ DEFAULT_STEP_SIZE = 30
 DEFAULT_GAMMA = 0.1
 DEFAULT_GRADIENT_TYPE = "Vertical"
 
+def tensor_stats(tensor, name=""):
+    arr = tensor.detach().cpu().numpy()
+    msg = f"{name} shape={arr.shape} min={arr.min():.4g} max={arr.max():.4g} mean={arr.mean():.4g} std={arr.std():.4g} nan={np.isnan(arr).any()} inf={np.isinf(arr).any()}"
+    print(msg)
+    return msg
+
+def print_probe_weights(probe):
+    w = probe.weight.data.cpu()
+    print(f"PROBE WEIGHT: min={w.min().item():.4g} max={w.max().item():.4g} mean={w.mean().item():.4g} std={w.std().item()}")
+    b = probe.bias.data.cpu()
+    print(f"PROBE BIAS: min={b.min().item():.4g} max={b.max().item():.4g} mean={b.mean().item():.4g} std={b.std().item()}")
 
 def extract_accumulate_number(filename):
-    # This assumes your pattern is timestep_XXX_accumulate_N.pt
     m = re.search(r'_accumulate_(\d+)\.pt$', filename)
     return int(m.group(1)) if m else -1
-
 
 # === Dataset ===
 class LatentTimestepDataset(Dataset):
@@ -49,13 +58,6 @@ class LatentFlexibleDataset(Dataset):
         layer=None, 
         component=None
     ):
-        """
-        folder: directory containing .pt files
-        timestep: which timestep to load (int)
-        accumulate_mode: True if using accumulate files, else single file per timestep
-        latent_type: which latent to return ('latents', 'guided', 'unguided', or 'both')
-        accumulate_size: number of examples per accumulate file (except last)
-        """
         self.folder = os.path.expanduser(folder)
         self.timestep = timestep
         self.accumulate_mode = accumulate_mode
@@ -114,7 +116,6 @@ class LatentFlexibleDataset(Dataset):
 
     def __getitem__(self, idx):
         if not self.accumulate_mode:
-            #print(f"[DEBUG] Single-file mode: Loading index {idx} from self.data")
             entry = self.data[idx]
         else:
             file_idx = None
@@ -126,15 +127,12 @@ class LatentFlexibleDataset(Dataset):
                 raise IndexError(f"Index {idx} out of range! Offsets: {self.offsets}")
 
             local_idx = idx - self.offsets[file_idx]
-            #print(f"[DEBUG] Accumulate mode: idx {idx} is in file {file_idx} ({self.file_list[file_idx]}), local_idx {local_idx}")
             if self._cached_file_idx != file_idx:
                 print(f"[DEBUG] Loading new file into cache: {self.file_list[file_idx]}", flush=True)
                 self._cached_data = torch.load(self.file_list[file_idx], map_location='cpu')
                 self._cached_file_idx = file_idx
             entry = self._cached_data[local_idx]
 
-        # Add a print for what kind of tensor is being returned
-        #print(f"[DEBUG] Returning latent_type: {self.latent_type}")
         if self.latent_type == 'latents':
             return entry['latents']
         elif self.latent_type == 'guided':
@@ -145,9 +143,6 @@ class LatentFlexibleDataset(Dataset):
             return torch.cat([entry['guided'], entry['unguided']], dim=0)
         else:
             raise ValueError(f"Unknown latent_type: {self.latent_type}")
-
-
-        
 
 def extract_timestep_from_filename(file_path):
     match = re.search(r'timestep_(\d+)', os.path.basename(file_path))
@@ -160,7 +155,6 @@ def load_dataset(file_path):
     timestep = extract_timestep_from_filename(file_path)
     return LatentTimestepDataset(data, timestep)
 
-# === Gradient Map Generator ===
 def generate_gradient_map(H, W, map_type):
     if map_type not in ["Horizontal", "Vertical", "Gaussian"]:
         raise ValueError(f"{map_type} not supported")
@@ -179,7 +173,6 @@ def generate_gradient_map(H, W, map_type):
 
     return gradient
 
-# === Probe + Target Creation ===
 def create_probe_and_target(train_loader, kernel_size, gradient_type, device):
     sample = next(iter(train_loader)).to(device).float()
     B, C, H, W = sample.shape
@@ -192,9 +185,14 @@ def create_probe_and_target(train_loader, kernel_size, gradient_type, device):
     _, _, out_H, out_W = output.shape
     target = generate_gradient_map(out_H, out_W, gradient_type).unsqueeze(0).unsqueeze(0).to(device)
 
+    # Print stats at setup
+    tensor_stats(sample, "INIT input sample")
+    tensor_stats(output, "INIT probe(sample)")
+    tensor_stats(target, "INIT target")
+    print_probe_weights(probe)
+    print(f"INIT shapes: sample {sample.shape}, output {output.shape}, target {target.shape}")
     return probe, target
 
-# === Training Loop ===
 def train_probe(probe, train_loader, target, device):
     optimizer = torch.optim.Adam(probe.parameters(), lr=DEFAULT_LR, weight_decay=DEFAULT_WEIGHT_DECAY)
     scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=DEFAULT_STEP_SIZE, gamma=DEFAULT_GAMMA)
@@ -204,13 +202,21 @@ def train_probe(probe, train_loader, target, device):
         total_loss = 0.0
         i = 0
         for batch in train_loader:
-            i = i+1 
+            i += 1 
             batch = batch.to(device).float()
-            #print("Latents: min", batch.min().item(), "max",batch.max().item(), "mean", batch.mean().item(), "std", batch.std().item())
-            #print("Target: min", target.min().item(), "max", target.max().item(), "mean", target.mean().item(), "std", target.std().item())
             B = batch.size(0)
             optimizer.zero_grad()
             output = probe(batch)
+            if (epoch == 0 and i == 1) or (epoch == DEFAULT_NUM_EPOCHS - 1 and i == 1):
+                tensor_stats(batch, f"TRAIN (epoch {epoch+1}) INPUT batch")
+                tensor_stats(output, f"TRAIN (epoch {epoch+1}) OUTPUT probe(batch)")
+                tensor_stats(target, f"TRAIN (epoch {epoch+1}) TARGET")
+                print_probe_weights(probe)
+                print(f"TRAIN (epoch {epoch+1}) shapes: batch {batch.shape}, output {output.shape}, target {target.shape}")
+                # Channelwise variance (input collapse check)
+                b, c, h, w = batch.shape
+                ch_var = batch.view(b, c, -1).var(dim=2).mean(dim=0)
+                print(f"TRAIN (epoch {epoch+1}) input channelwise variance: min={ch_var.min().item():.4g} max={ch_var.max().item():.4g} mean={ch_var.mean().item():.4g} std={ch_var.std().item():.4g}")
             loss = loss_fn(output, target.expand(B, -1, -1, -1))
             loss.backward()
             optimizer.step()
@@ -218,8 +224,9 @@ def train_probe(probe, train_loader, target, device):
         scheduler.step()
         avg_loss = total_loss / i
         print(f"Epoch {epoch+1}/{DEFAULT_NUM_EPOCHS} | Avg Loss per batch: {avg_loss:.4f}", flush=True)
+        if epoch == 0 or epoch == DEFAULT_NUM_EPOCHS - 1:
+            print_probe_weights(probe)
 
-# === Evaluation ===
 def evaluate_probe(
     probe, test_loader, target, save_dir, mae_out_path, spearman_out_path,
     gradient_type, device, num_examples_to_save=5, layer=None, component=None
@@ -231,7 +238,6 @@ def evaluate_probe(
     spearman_scores = []
 
     timestep = getattr(test_loader.dataset, "timestep", "unknown")
-     # Always use string (or empty) for layer and component
     layer_str = layer if layer is not None else ""
     component_str = component if component is not None else ""
 
@@ -242,9 +248,24 @@ def evaluate_probe(
             preds = probe(batch)
             truth = target.expand(B, -1, -1, -1)
 
+            if i == 0:
+                tensor_stats(batch, "EVAL INPUT batch")
+                tensor_stats(preds, "EVAL OUTPUT probe(batch)")
+                tensor_stats(truth, "EVAL TARGET")
+                print_probe_weights(probe)
+                print(f"EVAL shapes: batch {batch.shape}, preds {preds.shape}, truth {truth.shape}")
+
             for j in range(B):
                 pred_flat = preds[j].flatten().cpu().numpy()
                 target_flat = truth[j].flatten().cpu().numpy()
+                if i == 0 and j == 0:
+                    print(f"EVAL: First pred_flat: {pred_flat[:8]}... (shape={pred_flat.shape}), nans: {np.isnan(pred_flat).any()}, infs: {np.isinf(pred_flat).any()}")
+                    print(f"EVAL: First target_flat: {target_flat[:8]}... (shape={target_flat.shape}), nans: {np.isnan(target_flat).any()}, infs: {np.isinf(target_flat).any()}")
+                    # Optional: input-target correlation
+                    batch_flat = batch[j].flatten().cpu().numpy()
+                    if batch_flat.shape == target_flat.shape:
+                        corr = np.corrcoef(batch_flat, target_flat)[0, 1]
+                        print(f"EVAL: Pearson corr input-target (first): {corr:.4f}")
 
                 mae = np.abs(pred_flat - target_flat).mean()
                 total_mae += mae
@@ -268,7 +289,6 @@ def evaluate_probe(
     avg_mae = total_mae / len(test_loader.dataset)
     avg_spearman = np.mean(spearman_scores) if spearman_scores else float('nan')
 
-    # Always use same columns in CSV, empty if not set
     write_csv_line(
         mae_out_path,
         ["timestep", "kernel", "layer", "component", "gradient_type", "mae"],
@@ -286,7 +306,6 @@ def write_csv_line(path, header, row):
     os.makedirs(os.path.dirname(path), exist_ok=True)
     lock_path = path + ".lock"
     lock = FileLock(lock_path)
-
     with lock:
         write_header = not os.path.exists(path)
         with open(path, 'a', newline='') as f:
@@ -295,8 +314,6 @@ def write_csv_line(path, header, row):
                 writer.writerow(header)
             writer.writerow(row)
 
-
-# === Main ===
 def main():
     parser = argparse.ArgumentParser(description="Train linear probe on latent features")
     parser.add_argument("--latents_folder_train", type=str, required=True)
@@ -312,17 +329,15 @@ def main():
     parser.add_argument("--test_results_file_path_spearman", type=str, required=True)
     parser.add_argument("--gradient_type", type=str, default="Vertical", choices=["Vertical", "Horizontal", "Gaussian"])
     parser.add_argument("--accumulate_size", type=int, default=500, help="Number of samples per accumulate file (default 500)")
-    parser.add_argument("--layer", type=str, default=None,
-    help="Layer subfolder, e.g., 'layer_00' (default: None)")
-    parser.add_argument("--component", type=str, default=None,
-        help="Component file prefix, e.g., 'mix_ffn' (default: None)")
+    parser.add_argument("--layer", type=str, default=None, help="Layer subfolder, e.g., 'layer_00' (default: None)")
+    parser.add_argument("--component", type=str, default=None, help="Component file prefix, e.g., 'mix_ffn' (default: None)")
     args = parser.parse_args()
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
     train_dataset = LatentFlexibleDataset(
-    args.latents_folder_train, args.timestep, args.accumulate_mode,
-    args.latent_type, args.accumulate_size, args.layer, args.component)
+        args.latents_folder_train, args.timestep, args.accumulate_mode,
+        args.latent_type, args.accumulate_size, args.layer, args.component)
 
     test_dataset = LatentFlexibleDataset(
         args.latents_folder_test, args.timestep, args.accumulate_mode,
@@ -349,7 +364,7 @@ def main():
         model_name += f"_layer_{args.layer}"
     if args.component:
         model_name += f"_component_{args.component}"
-    model_name+= ".pt"
+    model_name += ".pt"
     print(model_name)
     model_path = os.path.join(args.models_output_folder, model_name)
     torch.save(probe.state_dict(), model_path)
