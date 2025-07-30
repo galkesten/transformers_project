@@ -40,7 +40,7 @@ def find_timesteps_layers_components(folder):
                     result[ts] = {None: [None]}
     return result
 
-def run_probe_for_timestep(train_folder, test_folder, ts, args, layer=None, component=None):
+def run_probe_for_timestep(train_folder, test_folder, ts, args, layer=None, component=None, normalize_latents_with_layer_norm=False):
     script_name = "py-sbatch.sh"
 
     model_out = os.path.join(args.base_folder, "probes")
@@ -53,6 +53,7 @@ def run_probe_for_timestep(train_folder, test_folder, ts, args, layer=None, comp
 
     layer_arg = f"--layer {layer}" if layer and layer != "None" else ""
     component_arg = f"--component {component}" if component and component != "None" else ""
+    normalize_latents_with_layer_norm_arg = "--normalize_latents_with_layer_norm" if normalize_latents_with_layer_norm else ""
 
     cmd = f"""./{script_name} src/probe.py \
     --latents_folder_train {train_folder} \
@@ -68,7 +69,7 @@ def run_probe_for_timestep(train_folder, test_folder, ts, args, layer=None, comp
     --test_results_file_path_spearman {spearman_csv} \
     --gradient_type {args.gradient_type} \
     --accumulate_size 500 \
-    {layer_arg} {component_arg}
+    {layer_arg} {component_arg} {normalize_latents_with_layer_norm_arg}
     """
 
     print(f"[Timestep {ts}] [Layer {layer}] [Component {component}] Submitting job with command:\n{cmd}")
@@ -80,6 +81,7 @@ def main():
     parser.add_argument("--kernel_size", type=int, default=1)
     parser.add_argument("--gradient_type", type=str, default="Vertical", choices=["Vertical", "Horizontal", "Gaussian"])
     parser.add_argument("--latents_name", type=str, required=True)
+    parser.add_argument("--normalize_latents_with_layer_norm", action="store_true")
     args = parser.parse_args()
 
     train_folder = os.path.join(args.base_folder, "train", args.latents_name)
@@ -98,7 +100,7 @@ def main():
             train_comps = set(train_map[ts][layer])
             test_comps = set(test_map[ts][layer])
             for component in (train_comps & test_comps):
-                run_probe_for_timestep(train_folder, test_folder, ts, args, layer=layer, component=component)
+                run_probe_for_timestep(train_folder, test_folder, ts, args, layer=layer, component=component, normalize_latents_with_layer_norm=args.normalize_latents_with_layer_norm)
 
 if __name__ == "__main__":
     main()

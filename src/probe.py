@@ -10,6 +10,7 @@ from scipy.stats import spearmanr
 import matplotlib.pyplot as plt
 import torch.nn.functional as F
 from filelock import FileLock
+from diffusers import SanaPipeline
 
 # === Fixed Training Hyperparameters ===
 DEFAULT_LR = 1e-3
@@ -18,6 +19,17 @@ DEFAULT_NUM_EPOCHS = 20
 DEFAULT_STEP_SIZE = 30
 DEFAULT_GAMMA = 0.1
 DEFAULT_GRADIENT_TYPE = "Vertical"
+
+def load_model():
+    pipe = SanaPipeline.from_pretrained(
+        "Efficient-Large-Model/Sana_1600M_1024px_diffusers",
+        variant="fp16",
+        torch_dtype=torch.float16,
+    )
+    pipe.to("cuda")
+    pipe.vae.to(torch.bfloat16)
+    pipe.text_encoder.to(torch.bfloat16)
+    return pipe
 
 def tensor_stats(tensor, name=""):
     arr = tensor.detach().cpu().numpy()
@@ -193,10 +205,13 @@ def create_probe_and_target(train_loader, kernel_size, gradient_type, device):
     print(f"INIT shapes: sample {sample.shape}, output {output.shape}, target {target.shape}")
     return probe, target
 
-def train_probe(probe, train_loader, target, device):
+def train_probe(probe, train_loader, target, device, normalize_latents_with_layer_norm=False):
     optimizer = torch.optim.Adam(probe.parameters(), lr=DEFAULT_LR, weight_decay=DEFAULT_WEIGHT_DECAY)
     scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=DEFAULT_STEP_SIZE, gamma=DEFAULT_GAMMA)
     loss_fn = nn.MSELoss()
+
+    pipe = load_model()
+    ln = pipe.transformer.norm_out.norm.to(device) #(norm_out): SanaModulatedNorm((norm): LayerNorm((2240,), eps=1e-06, elementwise_affine=False))
 
     for epoch in range(DEFAULT_NUM_EPOCHS):
         total_loss = 0.0
@@ -204,6 +219,18 @@ def train_probe(probe, train_loader, target, device):
         for batch in train_loader:
             i += 1 
             batch = batch.to(device).float()
+            if normalize_latents_with_layer_norm:
+                print(f"Normalizing latents with layer norm", flush=True)
+                B, C, H, W = batch.shape
+                # Step 1: Permute to [B, H, W, C]
+                batch = batch.permute(0, 2, 3, 1)
+                # Step 2: Apply LayerNorm over last dim (C)
+                batch = ln(batch)  # ln must have normalized_shape = (C,)
+                # Step 3: Permute back to [B, C, H, W]
+                batch = batch.permute(0, 3, 1, 2)
+                print(f"Normalized latents with layer norm", flush=True)
+                print(f"max: {batch.max()}, min: {batch.min()}, mean: {batch.mean()}, std: {batch.std()}")
+
             B = batch.size(0)
             optimizer.zero_grad()
             output = probe(batch)
@@ -331,6 +358,7 @@ def main():
     parser.add_argument("--accumulate_size", type=int, default=500, help="Number of samples per accumulate file (default 500)")
     parser.add_argument("--layer", type=str, default=None, help="Layer subfolder, e.g., 'layer_00' (default: None)")
     parser.add_argument("--component", type=str, default=None, help="Component file prefix, e.g., 'mix_ffn' (default: None)")
+    parser.add_argument("--normalize_latents_with_layer_norm", action="store_true", help="Normalize latents with layer norm")
     args = parser.parse_args()
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -354,8 +382,9 @@ def main():
     first_batch = next(iter(test_loader))
     print(f"Test batch shape: {first_batch.shape}", flush=True)
 
+    print(f"Layer norm: {args.normalize_latents_with_layer_norm}", flush=True)
     probe, target = create_probe_and_target(train_loader, args.kernel_size, args.gradient_type, device)
-    train_probe(probe, train_loader, target, device)
+    train_probe(probe, train_loader, target, device, args.normalize_latents_with_layer_norm)
 
     os.makedirs(args.models_output_folder, exist_ok=True)
     timestep = getattr(train_dataset, "timestep", "unknown")
