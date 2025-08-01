@@ -1,3 +1,4 @@
+from typing import Optional
 import torch
 import os
 import json
@@ -7,11 +8,63 @@ from collections import defaultdict
 from diffusers import SanaPipeline
 from huggingface_hub import hf_hub_download
 from diffusers.pipelines.sana.pipeline_sana import retrieve_timesteps
+from torch.nn import Identity
+import types
 
 current_timestep = None
 all_activations = defaultdict(lambda: defaultdict(lambda: defaultdict(list)))
 latents_by_ts = defaultdict(list)
 post_final_layer_norm_latents_by_ts = defaultdict(list)
+
+def install_forward_with_identities(block):
+    block.identity_after_attn = Identity()
+    block.identity_after_ff = Identity()
+
+    def forward2(self,
+        hidden_states: torch.Tensor,
+        attention_mask: Optional[torch.Tensor] = None,
+        encoder_hidden_states: Optional[torch.Tensor] = None,
+        encoder_attention_mask: Optional[torch.Tensor] = None,
+        timestep: Optional[torch.LongTensor] = None,
+        height: int = None,
+        width: int = None,
+    ) -> torch.Tensor:
+        batch_size = hidden_states.shape[0]
+
+        shift_msa, scale_msa, gate_msa, shift_mlp, scale_mlp, gate_mlp = (
+            self.scale_shift_table[None] + timestep.reshape(batch_size, 6, -1)
+        ).chunk(6, dim=1)
+
+        # Self-Attention
+        norm_hidden_states = self.norm1(hidden_states)
+        norm_hidden_states = norm_hidden_states * (1 + scale_msa) + shift_msa
+        norm_hidden_states = norm_hidden_states.to(hidden_states.dtype)
+
+        attn_output = self.attn1(norm_hidden_states)
+        hidden_states = hidden_states + self.identity_after_attn(gate_msa * attn_output)
+
+        # Cross-Attention
+        if self.attn2 is not None:
+            attn_output = self.attn2(
+                hidden_states,
+                encoder_hidden_states=encoder_hidden_states,
+                attention_mask=encoder_attention_mask,
+            )
+            hidden_states = hidden_states + attn_output
+
+        # Feed-forward
+        norm_hidden_states = self.norm2(hidden_states)
+        norm_hidden_states = norm_hidden_states * (1 + scale_mlp) + shift_mlp
+        norm_hidden_states = norm_hidden_states.unflatten(1, (height, width)).permute(0, 3, 1, 2)
+
+        ff_output = self.ff(norm_hidden_states)
+        ff_output = ff_output.flatten(2, 3).permute(0, 2, 1)
+        hidden_states = hidden_states + self.identity_after_ff(gate_mlp * ff_output)
+
+        return hidden_states
+
+    block.forward = types.MethodType(forward2, block)
+
 
 def reset_globals():
     global current_timestep, all_activations, latents_by_ts, post_final_layer_norm_latents_by_ts
@@ -93,18 +146,24 @@ def register_time_step_hook(model):
     handles.append(model.time_embed.register_forward_hook(time_hook))
     return handles
 
-def register_component_hooks(model, prompts, seed, layers, timesteps, component_type):
+def register_component_hooks(model, prompts, seed, layers, timesteps, component_type, use_contributions_mode=False):
     handles = []
     transformer_blocks = model.transformer_blocks
     for i, block in enumerate(transformer_blocks):
         if i not in layers:
             continue
         if component_type == "self_attn":
-            handles.append(block.attn1.register_forward_hook(make_component_hook("self_attn", i, prompts, seed, timesteps)))
+            if use_contributions_mode:
+                handles.append(block.identity_after_attn.register_forward_hook(make_component_hook("self_attn_after_gate", i, prompts, seed, timesteps)))
+            else:
+                handles.append(block.attn1.register_forward_hook(make_component_hook("self_attn", i, prompts, seed, timesteps)))
         elif component_type == "cross_attn":
             handles.append(block.attn2.register_forward_hook(make_component_hook("cross_attn", i, prompts, seed, timesteps)))
         elif component_type == "mix_ffn":
-            handles.append(block.ff.register_forward_hook(make_component_hook("mix_ffn", i, prompts, seed, timesteps)))
+            if use_contributions_mode:
+                handles.append(block.identity_after_ff.register_forward_hook(make_component_hook("mix_ffn_after_gate", i, prompts, seed, timesteps)))
+            else:
+                handles.append(block.ff.register_forward_hook(make_component_hook("mix_ffn", i, prompts, seed, timesteps)))
     return handles
 
 def make_post_final_layer_norm_latents_hook(prompts, seed, timesteps):
@@ -181,13 +240,13 @@ def get_layers(pipe, layers_step_size=5):
     return results
 
 
-def generate_activations(prompts, pipe, save_activations, save_latents, save_post_final_layer_norm_latents, layers, timesteps, component_type):
+def generate_activations(prompts, pipe, save_activations, save_latents, save_post_final_layer_norm_latents, layers, timesteps, component_type, use_contributions_mode=False):
     seed = random.randint(0, 99999)
     print(f"[INFO] Generating activations for {len(prompts)} prompt(s) | Seed: {seed}")
     hooks = []
     hooks += register_time_step_hook(pipe.transformer)
     if save_activations:
-        hooks += register_component_hooks(pipe.transformer, prompts, seed, layers, timesteps, component_type)
+        hooks += register_component_hooks(pipe.transformer, prompts, seed, layers, timesteps, component_type, use_contributions_mode)
 
     if save_post_final_layer_norm_latents:
         hooks += register_post_final_layer_norm_latents(pipe.transformer, prompts, seed, timesteps)
@@ -254,6 +313,7 @@ def main():
     parser.add_argument("--timesteps_step", type=int, default=-1)
     parser.add_argument("--component_type", type=str, choices=["self_attn", "cross_attn", "mix_ffn"], default="mix_ffn")
     parser.add_argument("--timesteps", type=int, nargs="+", default=[])
+    parser.add_argument("--use_contributions_mode", action="store_true", help="Whether to use contributions mode.")
 
 
     args = parser.parse_args()
@@ -271,6 +331,10 @@ def main():
 
     pipe = load_model()
 
+    if args.use_contributions_mode:
+      for i, block in enumerate(pipe.transformer.transformer_blocks):
+        install_forward_with_identities(block)
+        print(f"✅ Patched transformer block {i}")
 
     timesteps = (
     get_timesteps(pipe=pipe, timesteps_step_size=args.timesteps_step)
@@ -293,7 +357,8 @@ def main():
                              save_post_final_layer_norm_latents=args.save_post_final_layer_norm_latents,
                              layers=layers,
                              timesteps=timesteps,
-                             component_type=args.component_type)
+                             component_type=args.component_type,
+                             use_contributions_mode=args.use_contributions_mode)
         accumulate += len(batch)
         if accumulate >= 500:
             accumulate_counter = accumulate_counter + 1
@@ -320,7 +385,8 @@ def main():
                              save_post_final_layer_norm_latents=args.save_post_final_layer_norm_latents, 
                              layers=layers,
                              timesteps=timesteps,
-                             component_type=args.component_type)
+                             component_type=args.component_type,
+                             use_contributions_mode=args.use_contributions_mode)
         accumulate += len(batch)
         if accumulate >= 500:
             accumulate_counter = accumulate_counter + 1
