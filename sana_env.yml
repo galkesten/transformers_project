@@ -1,0 +1,33 @@
+name: sana_env
+channels:
+  - nvidia
+  - pytorch
+  - conda-forge
+  - defaults
+
+dependencies:
+  - python=3.10
+  - pip
+  - pytorch
+  - torchvision
+  - torchaudio
+  - pytorch-cuda=11.8
+  - numpy
+  - matplotlib
+  - open3d
+  - scipy
+  - tqdm
+  - pillow
+  - opencv
+  - scikit-learn
+  - pandas
+  - openpyxl
+  - jupyterlab
+  - notebook
+  - ipywidgets
+  - tqdm
+
+  - pip:
+      - transformers
+      - diffusers
+      - accelerate

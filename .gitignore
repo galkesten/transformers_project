@@ -2,3 +2,4 @@
 slurm*
 *.tar.gz
 post_layer_norm_latents.tar.gz
+*.pth
