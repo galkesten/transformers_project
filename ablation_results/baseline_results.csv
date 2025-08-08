@@ -1,0 +1,2 @@
+experiment_type,ablation_type,ablation_component,total_images,total_prompts,correct_images_pct,correct_prompts_pct,task_colors_score,task_position_score,task_two_object_score,task_single_object_score,task_color_attr_score,task_counting_score,overall_score
+baseline,none,mix_ffn,1106,553,0.6211573236889693,0.7088607594936709,0.8776595744680851,0.22,0.7474747474747475,0.9875,0.405,0.56875,0.6343973869904722

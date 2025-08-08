@@ -13,7 +13,11 @@ from torchvision.utils import make_grid
 from torchvision.transforms import ToTensor
 from pytorch_lightning import seed_everything
 from diffusers import SanaPipeline
+import sys
 
+
+print(f"PYTHON EXECUTABLE: {sys.executable}", flush=True)
+print(f"CONDA ENV: {os.environ.get('CONDA_DEFAULT_ENV')}", flush=True)
 
 torch.set_grad_enabled(False)
 
