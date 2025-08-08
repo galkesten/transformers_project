@@ -88,22 +88,52 @@ def parse_args():
         default=None,
         help="file to load mean activations from",
     )
-
+    #add list of timesteps
+    parser.add_argument(
+        "--timesteps",
+        type=int,
+        nargs='+',
+        default=[0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19],
+        help="list of timesteps to apply ablation to",
+    )
+    #step wise
+    parser.add_argument(
+        "--step_wise",
+        action="store_true",
+        help="apply ablation step by step",
+    )
 
     opt = parser.parse_args()
     return opt
 
-def zero_ablation_hook(module, input, output):
-    return torch.zeros_like(output)
+def create_timestep_ablation_hook(timesteps):
+    def zero_ablation_hook(module, input, output):
+        global step_counter
+        if step_counter not in timesteps:
+            return output
+        return torch.zeros_like(output)
+    return zero_ablation_hook
 
-def create_mean_per_token_ablation_hook(mean_activations, layer):
+def create_mean_per_token_ablation_hook(mean_activations, layer, timesteps):
     def mean_per_token_ablation_hook(module, input, output):
-        return mean_activations[layer][step_counter]
+        global step_counter
 
-def mean_over_tokens_ablation_hook(module, input, output):
+        if step_counter not in timesteps:
+            return output
+        ret = mean_activations[layer][step_counter]
+        #extend ret to the same shape as output
+        ret = ret.expand(output.shape)
+        return ret
+    return mean_per_token_ablation_hook
 
-    mean = output.mean(dim=1, keepdim=True) if output.ndim == 3 else output.mean(dim=(2,3), keepdim=True)
-    return mean.expand_as(output)
+def create_mean_over_tokens_ablation_hook(timesteps):
+    def mean_over_tokens_ablation_hook(module, input, output):
+        global step_counter
+        if step_counter not in timesteps:
+            return output
+        mean = output.mean(dim=1, keepdim=True) if output.ndim == 3 else output.mean(dim=(2,3), keepdim=True)
+        return mean.expand_as(output)
+    return mean_over_tokens_ablation_hook
 
 
 def _count_steps(module, input):
@@ -122,7 +152,7 @@ def load_model():
     pipe.text_encoder.to(torch.bfloat16)
     return pipe
 
-def register_component_hooks(model, block_id, component_type, ablation_type, mean_activations=None):
+def register_component_hooks_per_layer(model, block_id, component_type, ablation_type, mean_activations=None, timesteps=None):
     handles = []
     transformer_blocks = model.transformer_blocks
     ablation_hook = None
@@ -130,10 +160,11 @@ def register_component_hooks(model, block_id, component_type, ablation_type, mea
     print(block)
     print(f"ablation_type: {ablation_type}")
     print(f"component_type: {component_type}")
-    print(f"mean_activations: {mean_activations.shape}")
+    if mean_activations is not None:
+        print(f"mean_activations: {mean_activations.shape}")
 
     if ablation_type == "zero":
-        ablation_hook = zero_ablation_hook
+        ablation_hook = create_timestep_ablation_hook(timesteps)
         if component_type == "self_attn":
             handles.append(block.attn1.register_forward_hook(ablation_hook))
         if component_type == "cross_attn":
@@ -141,7 +172,7 @@ def register_component_hooks(model, block_id, component_type, ablation_type, mea
         if component_type == "mix_ffn":
             handles.append(block.ff.register_forward_hook(ablation_hook))  
     elif ablation_type == "mean_per_token":
-        ablation_hook = create_mean_per_token_ablation_hook(mean_activations, block_id)
+        ablation_hook = create_mean_per_token_ablation_hook(mean_activations, block_id, timesteps)
         if component_type == "self_attn":
             handles.append(block.attn1.register_forward_hook(ablation_hook))
         if component_type == "cross_attn":
@@ -149,7 +180,7 @@ def register_component_hooks(model, block_id, component_type, ablation_type, mea
         if component_type == "mix_ffn":
             handles.append(block.ff.register_forward_hook(ablation_hook))
     elif ablation_type == "mean_over_tokens":
-        ablation_hook = mean_over_tokens_ablation_hook
+        ablation_hook = create_mean_over_tokens_ablation_hook(timesteps)
         if component_type == "self_attn":
             handles.append(block.attn1.register_forward_hook(ablation_hook))
         if component_type == "cross_attn":
@@ -158,11 +189,44 @@ def register_component_hooks(model, block_id, component_type, ablation_type, mea
             handles.append(block.ff.register_forward_hook(ablation_hook))
     return handles
 
+def register_component_hooks_per_step(model, component_type, ablation_type, mean_activations=None, timesteps=None):
+    handles = []
+    transformer_blocks = model.transformer_blocks
+    for i, block in enumerate(transformer_blocks):
+        if ablation_type == "zero":
+            ablation_hook = create_timestep_ablation_hook(timesteps)
+            if component_type == "self_attn":
+                handles.append(block.attn1.register_forward_hook(ablation_hook))
+            if component_type == "cross_attn":
+                handles.append(block.attn2.register_forward_hook(ablation_hook))
+            if component_type == "mix_ffn":
+                handles.append(block.ff.register_forward_hook(ablation_hook))  
+        elif ablation_type == "mean_per_token":
+            ablation_hook = create_mean_per_token_ablation_hook(mean_activations, i, timesteps)
+            if component_type == "self_attn":
+                handles.append(block.attn1.register_forward_hook(ablation_hook))
+            if component_type == "cross_attn":
+                handles.append(block.attn2.register_forward_hook(ablation_hook))
+            if component_type == "mix_ffn":
+                handles.append(block.ff.register_forward_hook(ablation_hook))
+        elif ablation_type == "mean_over_tokens":
+            ablation_hook = create_mean_over_tokens_ablation_hook(timesteps)
+            if component_type == "self_attn":
+                handles.append(block.attn1.register_forward_hook(ablation_hook))
+            if component_type == "cross_attn":
+                handles.append(block.attn2.register_forward_hook(ablation_hook))
+            if component_type == "mix_ffn":
+                handles.append(block.ff.register_forward_hook(ablation_hook))
+    return handles
+
 def main(opt):
     if opt.ablation_type == "mean_per_token":
         mean_activations = torch.load(opt.mean_activations_file)
         print(f"mean_activations: {mean_activations.shape}")
-
+    else:
+        mean_activations = None
+    print(f"timesteps: {opt.timesteps}")
+    print(f"step_wise: {opt.step_wise}")
     # Load prompts
     with open(opt.metadata_file) as fp:
         metadatas = [json.loads(line) for line in fp]
@@ -174,8 +238,11 @@ def main(opt):
     global step_counter
 
     if opt.ablation_type != "none":
-        print(f"Ablating {opt.ablation_type} {opt.ablation_component} in layer {opt.ablation_layer}")   
-        handles = register_component_hooks(model.transformer, opt.ablation_layer, opt.ablation_component, opt.ablation_type, mean_activations)
+        print(f"Ablating {opt.ablation_type} {opt.ablation_component} in layer {opt.ablation_layer}") 
+        if opt.step_wise:
+            handles = register_component_hooks_per_step(model.transformer, opt.ablation_component, opt.ablation_type, mean_activations, opt.timesteps)
+        else:
+            handles = register_component_hooks_per_layer(model.transformer, opt.ablation_layer, opt.ablation_component, opt.ablation_type, mean_activations, opt.timesteps)
 
     for index, metadata in enumerate(metadatas):
         step_counter = -1 #reset step counter for each prompt
@@ -214,6 +281,7 @@ def main(opt):
                     all_samples.append(torch.stack([ToTensor()(sample) for sample in samples], 0))
 
             if not opt.skip_grid:
+                print("creating grid")
                 # additionally, save as grid
                 grid = torch.stack(all_samples, 0)
                 grid = rearrange(grid, 'n b c h w -> (n b) c h w')

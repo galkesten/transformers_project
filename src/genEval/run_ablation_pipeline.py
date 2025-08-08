@@ -41,8 +41,8 @@ def parse_args():
     
     parser.add_argument(
         "--ablation_type",
-        choices=["zero", "none"],
-        default="zero",
+        choices=["zero", "mean_per_token", "mean_over_tokens", "none"],
+        default="none",
         help="type of ablation to apply",
     )
     
@@ -79,7 +79,19 @@ def parse_args():
         default=3,
         help="number of sample images to save per layer",
     )
-    
+
+    parser.add_argument(
+        "--mean_activations_file",
+        type=str,
+        default=None,
+        help="file to load mean activations from",
+    )
+
+    parser.add_argument(
+        "--step_wise",
+        action="store_true",
+        help="apply ablation step by step",
+    )
     return parser.parse_args()
 
 def load_model_info():
@@ -98,7 +110,7 @@ def load_model_info():
         print(f"Error loading model: {e}")
         return 20  # Default fallback
 
-def run_generation(layer, args, temp_dir):
+def run_generation_layer_wise(layer, args, temp_dir, mean_activations_file=None):
     """Run image generation for a specific layer"""
     print(f"\n🖼️  Generating images for layer {layer}...")
     
@@ -112,6 +124,7 @@ def run_generation(layer, args, temp_dir):
         "--ablation_type", args.ablation_type,
         "--ablation_layer", str(layer),
         "--ablation_component", args.ablation_component,
+        "--mean_activations_file", mean_activations_file,
     ]
     
     print(f"Running: {' '.join(cmd)}")
@@ -124,6 +137,35 @@ def run_generation(layer, args, temp_dir):
         return False
     
     print(f" Generation completed for layer {layer}")
+    return True
+
+def run_generation_step_wise(args, temp_dir, timestep, mean_activations_file=None):
+    """Run image generation for a specific timestep"""
+    print(f"\n🖼️  Generating images for timestep {timestep}...")
+    
+    cmd = [
+        sys.executable, "src/genEval/generation/diffusers_generate.py",
+        args.prompts_file,
+        "--outdir", temp_dir, 
+        "--n_samples", str(args.n_samples),
+        "--seed", str(args.seed),
+        "--batch_size", str(args.batch_size),
+        "--ablation_type", args.ablation_type,
+        "--ablation_component", args.ablation_component,
+        "--timesteps", str(timestep),
+        "--step_wise",
+    ]
+
+    print(f"Running: {' '.join(cmd)}")
+    result = subprocess.run(cmd, capture_output=True, text=True)
+    
+    if result.returncode != 0:
+        print(f"Generation failed for timestep {timestep}")
+        print(f"STDOUT: {result.stdout}")
+        print(f"STDERR: {result.stderr}")
+        return False
+    
+    print(f" Generation completed for timestep {timestep}")
     return True
 
 def run_generation_baseline(args, temp_dir):
@@ -179,10 +221,10 @@ def run_evaluation(temp_dir, args):
     print(f" Evaluation completed")
     return results_file
 
-def extract_results_to_csv(results_file, layer, args, output_dir, all_results_csv):
+def extract_results_to_csv(results_file, layer_or_timestep, args, output_dir, all_results_csv):
     
     """Extract evaluation results and append summary row to CSV with file locking"""
-    print(f"\n Extracting results for layer {layer}...")
+    print(f"\n Extracting results for layer {layer_or_timestep}...")
     
     try:
         # Load results
@@ -199,9 +241,19 @@ def extract_results_to_csv(results_file, layer, args, output_dir, all_results_cs
                 'correct_images_pct': df['correct'].mean(),
                 'correct_prompts_pct': df.groupby('metadata')['correct'].any().mean(),
             }
+        elif args.step_wise:
+            summary = {
+                'timestep': layer_or_timestep,
+                'ablation_type': args.ablation_type,
+                'ablation_component': args.ablation_component,
+                'total_images': len(df),
+                'total_prompts': len(df.groupby('metadata')),
+                'correct_images_pct': df['correct'].mean(),
+                'correct_prompts_pct': df.groupby('metadata')['correct'].any().mean(),
+            }
         else:
             summary = {
-                'layer': layer,
+                'layer': layer_or_timestep,
                 'ablation_type': args.ablation_type,
                 'ablation_component': args.ablation_component,
                 'total_images': len(df),
@@ -307,7 +359,7 @@ def main():
     # Create output directory
     os.makedirs(args.output_dir, exist_ok=True)
     os.makedirs(os.path.join(args.output_dir, "sample_images"), exist_ok=True)
-    
+    #load mean activations
     if args.baseline:
         # Baseline mode: run single experiment without ablation
         print(f"Running baseline experiment (no ablation)")
@@ -344,6 +396,45 @@ def main():
         print(f" Results saved in: {args.output_dir}")
         print(f" Main results file: {all_results_csv}")
         
+    elif args.step_wise:
+        # Step wise mode: run experiments for all timesteps
+        print(f"Running step wise experiment")
+        print(f"Output directory: {args.output_dir}")
+        print(f"Ablation type: {args.ablation_type}")
+        print(f"Ablation component: {args.ablation_component}")
+
+        # Create the main CSV file path for all results
+        all_results_csv = os.path.join(args.output_dir, f"all_timesteps_results_{args.ablation_type}_{args.ablation_component}.csv")
+
+        # Run experiment for each timestep
+        for timestep in tqdm(range(20), desc="Processing timesteps"):
+            print(f"\n{'='*60}")
+            print(f"Processing Timestep {timestep}")
+            print(f"{'='*60}")
+
+            # Create temporary directory for this timestep
+            temp_dir_name = f"ablation_{args.ablation_type}_{args.ablation_component}_timestep_{timestep}"
+            with tempfile.TemporaryDirectory(prefix=temp_dir_name + "_") as temp_dir:
+                
+                # Step 1: Generate images
+                if not run_generation_step_wise(args, temp_dir, timestep, args.mean_activations_file):
+                    print(f"Skipping timestep {timestep} due to generation failure")
+                    continue
+
+                # Step 2: Evaluate images
+                results_file = run_evaluation(temp_dir, args)
+                if results_file is None:
+                    print(f"Skipping timestep {timestep} due to evaluation failure")
+                    continue
+                
+                # Step 3: Extract results to CSV
+                extract_results_to_csv(results_file, timestep, args, args.output_dir, all_results_csv)
+
+                # Step 4: Save sample images
+                save_sample_images(temp_dir, timestep, args, args.output_dir)
+                
+                # Step 5: Cleanup (handled by context manager)
+                print(f" Timestep {timestep} processing completed")
     else:
         # Ablation mode: run experiments for all layers
         # Get number of layers
@@ -367,7 +458,7 @@ def main():
             with tempfile.TemporaryDirectory(prefix=temp_dir_name + "_") as temp_dir:
                 
                 # Step 1: Generate images
-                if not run_generation(layer, args, temp_dir):
+                if not run_generation_layer_wise(layer, args, temp_dir, args.mean_activations_file):
                     print(f"Skipping layer {layer} due to generation failure")
                     continue
 

@@ -41,3 +41,22 @@
   --output_dir ablation_results \
   --sample_images_per_layer 4 \
   --baseline 
+
+
+  python src/genEval/generation/diffusers_generate.py   src/genEval/prompts/eval.jsonl   --outdir sana_images   --n_samples 4   --batch_size 10   --seed 42 --ablation_type mean_per_token --mean_activations_file mean_ablations/mean_activations_mix_ffn.pt --ablation_layer 0 --ablation_component mix_ffn
+
+
+  python src/genEval/generation/diffusers_generate.py   src/genEval/prompts/eval.jsonl   --outdir sana_images   --n_samples 4   --batch_size 10   --seed 42 --ablation_type mean_over_tokens --mean_activations_file mean_ablations/mean_activations_mix_ffn.pt --ablation_layer 0 --ablation_component mix_ffn
+
+  python src/genEval/generation/diffusers_generate.py   src/genEval/prompts/eval.jsonl   --outdir sana_images   --n_samples 4   --batch_size 10   --seed 42 --ablation_type zero --mean_activations_file mean_ablations/mean_activations_mix_ffn.pt --ablation_layer 0 --ablation_component mix_ffn
+
+
+  python src/genEval/generation/diffusers_generate.py   src/genEval/prompts/eval.jsonl   --outdir sana_images   --n_samples 4   --batch_size 10   --seed 42 --ablation_type mean_per_token --mean_activations_file mean_ablations/mean_activations_self_attn.pt --ablation_layer 0 --ablation_component self_attn
+
+
+  python src/genEval/generation/diffusers_generate.py   src/genEval/prompts/eval.jsonl   --outdir sana_images   --n_samples 4   --batch_size 10   --seed 42 --ablation_type mean_over_tokens --mean_activations_file mean_ablations/mean_activations_self_attn.pt --ablation_layer 0 --ablation_component self_attn
+
+  python src/genEval/generation/diffusers_generate.py   src/genEval/prompts/eval.jsonl   --outdir sana_images   --n_samples 4   --batch_size 10   --seed 42 --ablation_type zero --mean_activations_file mean_ablations/mean_activations_self_attn.pt --ablation_layer 0 --ablation_component self_attn
+
+
+  python src/genEval/generation/diffusers_generate.py   src/genEval/prompts/eval.jsonl   --outdir sana_images   --n_samples 4   --batch_size 10   --seed 42 --ablation_type mean_per_token --mean_activations_file mean_ablations/mean_activations_mix_ffn.pt --ablation_layer 0 --ablation_component mix_ffn --timesteps 1 --step_wise
