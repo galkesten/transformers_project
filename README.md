@@ -12,7 +12,7 @@ This experiment records and visualizes the **input and output activations** of t
 For each denoising step, the activations from all 20 blocks are captured, reshaped, decoded using the VAE, and saved as images.
 ### Output Dir
 exp1-sana_latent_vis_<prompt_slug>/
-Visualization helper : `res_exp1_visualization.ipynb` generates a figure showing the full activation chain (attn1 → attn2 → ff) for a single timestep.
+Visualization helper: after running 'exp1.ipynb`, run 'res_exp1_visualization.ipynb` to generate a figure showing the full activation chain (attn1 → attn2 → ff) for a single timestep.
 
 ---
 
@@ -28,7 +28,7 @@ For each block `i`, its FFN is ablated across all timesteps.
 
 ###  Output Dir
 exp2-sana_ablation_results_sana/
-Visualization helper: `res_exp2.ipynb` to view image grids comparing all ablations.
+Visualization helper: after running 'exp2-part2.ipnb`, run ' res_exp2.ipynb` to view image grids comparing all ablations.
 
 ---
 
