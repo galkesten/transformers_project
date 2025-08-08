@@ -20,7 +20,9 @@ print(f"PYTHON EXECUTABLE: {sys.executable}", flush=True)
 print(f"CONDA ENV: {os.environ.get('CONDA_DEFAULT_ENV')}", flush=True)
 
 torch.set_grad_enabled(False)
+N_STEPS    = 20
 
+step_counter = -1
 
 def parse_args():
     parser = argparse.ArgumentParser()
@@ -64,7 +66,7 @@ def parse_args():
 
     parser.add_argument(
         "--ablation_type",
-        choices=["zero", "none"],
+        choices=["zero", "mean_per_token", "mean_over_tokens", "none"],
         default="none",
         help="type of ablation to apply",
     )
@@ -80,6 +82,12 @@ def parse_args():
         default="mix_ffn",
         help="component to apply ablation to",
     )
+    parser.add_argument(
+        "--mean_activations_file",
+        type=str,
+        default=None,
+        help="file to load mean activations from",
+    )
 
 
     opt = parser.parse_args()
@@ -88,6 +96,20 @@ def parse_args():
 def zero_ablation_hook(module, input, output):
     return torch.zeros_like(output)
 
+def create_mean_per_token_ablation_hook(mean_activations, layer):
+    def mean_per_token_ablation_hook(module, input, output):
+        return mean_activations[layer][step_counter]
+
+def mean_over_tokens_ablation_hook(module, input, output):
+
+    mean = output.mean(dim=1, keepdim=True) if output.ndim == 3 else output.mean(dim=(2,3), keepdim=True)
+    return mean.expand_as(output)
+
+
+def _count_steps(module, input):
+    """Executed *before* each denoising step; increments global t."""
+    global step_counter 
+    step_counter = step_counter + 1 
 
 def load_model():
     pipe = SanaPipeline.from_pretrained(
@@ -100,35 +122,63 @@ def load_model():
     pipe.text_encoder.to(torch.bfloat16)
     return pipe
 
-def register_component_hooks(model, block_id, component_type, ablation_type):
+def register_component_hooks(model, block_id, component_type, ablation_type, mean_activations=None):
     handles = []
     transformer_blocks = model.transformer_blocks
     ablation_hook = None
-    if ablation_type == "zero":
-        ablation_hook = zero_ablation_hook
-
     block = transformer_blocks[block_id]
     print(block)
-    if component_type == "self_attn":
-         handles.append(block.attn1.register_forward_hook(ablation_hook))
-    if component_type == "cross_attn":
-        handles.append(block.attn2.register_forward_hook(ablation_hook))
-    if component_type == "mix_ffn":
-        handles.append(block.ff.register_forward_hook(ablation_hook))  
+    print(f"ablation_type: {ablation_type}")
+    print(f"component_type: {component_type}")
+    print(f"mean_activations: {mean_activations.shape}")
+
+    if ablation_type == "zero":
+        ablation_hook = zero_ablation_hook
+        if component_type == "self_attn":
+            handles.append(block.attn1.register_forward_hook(ablation_hook))
+        if component_type == "cross_attn":
+            handles.append(block.attn2.register_forward_hook(ablation_hook))
+        if component_type == "mix_ffn":
+            handles.append(block.ff.register_forward_hook(ablation_hook))  
+    elif ablation_type == "mean_per_token":
+        ablation_hook = create_mean_per_token_ablation_hook(mean_activations, block_id)
+        if component_type == "self_attn":
+            handles.append(block.attn1.register_forward_hook(ablation_hook))
+        if component_type == "cross_attn":
+            handles.append(block.attn2.register_forward_hook(ablation_hook))
+        if component_type == "mix_ffn":
+            handles.append(block.ff.register_forward_hook(ablation_hook))
+    elif ablation_type == "mean_over_tokens":
+        ablation_hook = mean_over_tokens_ablation_hook
+        if component_type == "self_attn":
+            handles.append(block.attn1.register_forward_hook(ablation_hook))
+        if component_type == "cross_attn":
+            handles.append(block.attn2.register_forward_hook(ablation_hook))
+        if component_type == "mix_ffn":
+            handles.append(block.ff.register_forward_hook(ablation_hook))
     return handles
 
 def main(opt):
+    if opt.ablation_type == "mean_per_token":
+        mean_activations = torch.load(opt.mean_activations_file)
+        print(f"mean_activations: {mean_activations.shape}")
+
     # Load prompts
     with open(opt.metadata_file) as fp:
         metadatas = [json.loads(line) for line in fp]
 
     # Load model
     model = load_model()
+    model.transformer.register_forward_pre_hook(_count_steps)
+
+    global step_counter
+
     if opt.ablation_type != "none":
         print(f"Ablating {opt.ablation_type} {opt.ablation_component} in layer {opt.ablation_layer}")   
-        handles = register_component_hooks(model.transformer, opt.ablation_layer, opt.ablation_component, opt.ablation_type)
+        handles = register_component_hooks(model.transformer, opt.ablation_layer, opt.ablation_component, opt.ablation_type, mean_activations)
 
     for index, metadata in enumerate(metadatas):
+        step_counter = -1 #reset step counter for each prompt
         seed_everything(opt.seed)
 
         outpath = os.path.join(opt.outdir, f"{index:0>5}")
