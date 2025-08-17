@@ -123,6 +123,8 @@ def create_mean_per_token_ablation_hook(mean_activations, layer, timesteps):
         ret = mean_activations[layer][step_counter]
         #extend ret to the same shape as output
         ret = ret.expand(output.shape)
+        #convert to dtype of output
+        ret = ret.to(output.dtype)
         return ret
     return mean_per_token_ablation_hook
 

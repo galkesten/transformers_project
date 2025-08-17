@@ -14,6 +14,7 @@ N_STEPS    = 20
 LEVELS = None
 DEVICE = "cuda"
 means = None
+counts = None
 
 def parse_args():
     parser = argparse.ArgumentParser()
@@ -76,11 +77,12 @@ def register_component_hooks(model, component_type):
     transformer_blocks = model.transformer_blocks
     for i, block in enumerate(transformer_blocks):
         if component_type == "self_attn":
-            handles.append(block.attn1.register_forward_hook(make_mean_hook(i)))
+            handles.append(block.attn1.register_forward_hook(make_running_mean_hook(i)))
         if component_type == "cross_attn":
-            handles.append(block.attn2.register_forward_hook(make_mean_hook(i)))
+            handles.append(block.attn2.register_forward_hook(make_running_mean_hook(i)))
+            #handles.append(block.attn2.register_forward_hook(print_timestep_counter_hook))
         if component_type == "mix_ffn":
-            handles.append(block.ff.register_forward_hook(make_mean_hook(i)))
+            handles.append(block.ff.register_forward_hook(make_running_mean_hook(i)))
     return handles
 
 def load_prompt_file(json_prompt_file):
@@ -119,6 +121,41 @@ def make_mean_hook(layer:int):
     return collect_mean_activations_hook
 
 
+
+def print_timestep_counter_hook(module, input, output):
+    global step_counter
+    print(f"step_counter: {step_counter}")
+    return output
+
+
+
+def make_running_mean_hook(layer: int):
+    def hook(module, input, output):
+        global means, counts, step_counter
+        # accumulate in float32
+        x = output.detach().to(torch.float32)
+        x = torch.nan_to_num(x, nan=0.0, posinf=0.0, neginf=0.0)
+        x_sum = x.sum(dim=0)
+        b = int(x.shape[0])
+
+        m = means[layer][step_counter]
+        c = counts[layer][step_counter]
+
+        if m is None:
+            means[layer][step_counter] = (x_sum / b).to(torch.float32)
+            counts[layer][step_counter] = b
+        else:
+            m = m.to(torch.float32)
+            denom = c + b
+            # exact running-mean update:
+            # m_new = (c*m + x_sum) / (c + b)  ==  m + (x_sum - b*m)/(c + b)
+            m.add_((x_sum - m * b) / denom)
+            means[layer][step_counter] = m
+            counts[layer][step_counter] = c + b
+
+        return output
+    return hook
+
 if __name__ == "__main__":
     opt = parse_args()
     pipe = load_model()
@@ -126,6 +163,7 @@ if __name__ == "__main__":
     with open(opt.metadata_file) as fp:
         metadatas = [json.loads(line) for line in fp]
     LEVELS = len(pipe.transformer.transformer_blocks)
+    counts = [[0] * N_STEPS for _ in range(LEVELS)]
     means = [[None] * N_STEPS for _ in range(LEVELS)]
     handles = register_component_hooks(pipe.transformer, opt.ablation_component)
 
@@ -159,17 +197,10 @@ if __name__ == "__main__":
                     sample_count += 1
                 total_samples += len(samples)
 
-    dominator = total_samples * 2 # classifier free guidance use 2 samples per prompt
-   # 1. Replace None with zeros and divide by dominator
-    for i in range(LEVELS):
-        for j in range(N_STEPS):
-            if means[i][j] is None:
-                means[i][j] = torch.zeros_like(means[0][0])
-            means[i][j] = means[i][j] / dominator
 
     # 2. Stack to tensor
     means_tensor = torch.stack([torch.stack(row, dim=0) for row in means], dim=0)
-   
+    
     # 3. Save
     torch.save(means_tensor, os.path.join(opt.outdir, f"mean_activations_{opt.ablation_component}.pt"))
 

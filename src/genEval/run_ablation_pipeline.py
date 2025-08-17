@@ -124,8 +124,11 @@ def run_generation_layer_wise(layer, args, temp_dir, mean_activations_file=None)
         "--ablation_type", args.ablation_type,
         "--ablation_layer", str(layer),
         "--ablation_component", args.ablation_component,
-        "--mean_activations_file", mean_activations_file,
     ]
+    
+    # Only add mean_activations_file if it's not None
+    if mean_activations_file is not None:
+        cmd.extend(["--mean_activations_file", mean_activations_file])
     
     print(f"Running: {' '.join(cmd)}")
     result = subprocess.run(cmd, capture_output=True, text=True)
@@ -155,6 +158,9 @@ def run_generation_step_wise(args, temp_dir, timestep, mean_activations_file=Non
         "--timesteps", str(timestep),
         "--step_wise",
     ]
+
+    if mean_activations_file is not None:
+        cmd.extend(["--mean_activations_file", mean_activations_file])
 
     print(f"Running: {' '.join(cmd)}")
     result = subprocess.run(cmd, capture_output=True, text=True)
@@ -297,12 +303,14 @@ def extract_results_to_csv(results_file, layer_or_timestep, args, output_dir, al
 
 
 
-def save_sample_images(temp_dir, layer, args, output_dir):
+def save_sample_images(temp_dir, layer_or_timestep, args, output_dir):
     """Save sample images from the generated images (including subfolders)"""
     if args.baseline:
         print(f"\n  Saving baseline sample images...")
+    elif args.step_wise:
+        print(f"\n  Saving sample images for timestep {layer_or_timestep}...")
     else:
-        print(f"\n  Saving sample images for layer {layer}...")
+        print(f"\n  Saving sample images for layer {layer_or_timestep}...")
 
     try:
         # Find image files in temp_dir and all subfolders
@@ -331,9 +339,24 @@ def save_sample_images(temp_dir, layer, args, output_dir):
                 shutil.copy2(img_file, dest_path)
 
             print(f"Saved {sample_count} baseline sample images to {sample_dir}")
+        elif args.step_wise:
+            # Create timestep-specific directory
+            timestep_dir = os.path.join(output_dir, "sample_images", f"timestep_{layer_or_timestep}")
+            os.makedirs(timestep_dir, exist_ok=True)
+
+            # Copy sample images
+            sample_count = min(args.sample_images_per_layer, len(image_files))
+            selected_files = image_files[:sample_count]
+
+            for i, img_file in enumerate(selected_files):
+                new_name = f"timestep_{layer_or_timestep}_{args.ablation_type}_{args.ablation_component}_sample_{i}{img_file.suffix}"
+                dest_path = os.path.join(timestep_dir, new_name)
+                shutil.copy2(img_file, dest_path)
+
+            print(f"Saved {sample_count} sample images to {timestep_dir}")  
         else:
             # Create layer-specific directory
-            layer_dir = os.path.join(output_dir, "sample_images", f"layer_{layer}")
+            layer_dir = os.path.join(output_dir, "sample_images", f"layer_{layer_or_timestep}")
             os.makedirs(layer_dir, exist_ok=True)
 
             # Copy sample images
@@ -341,7 +364,7 @@ def save_sample_images(temp_dir, layer, args, output_dir):
             selected_files = image_files[:sample_count]
 
             for i, img_file in enumerate(selected_files):
-                new_name = f"layer_{layer}_{args.ablation_type}_{args.ablation_component}_sample_{i}{img_file.suffix}"
+                new_name = f"layer_{layer_or_timestep}_{args.ablation_type}_{args.ablation_component}_sample_{i}{img_file.suffix}"
                 dest_path = os.path.join(layer_dir, new_name)
                 shutil.copy2(img_file, dest_path)
 
@@ -395,7 +418,7 @@ def main():
         print(f"\n Baseline experiment completed!")
         print(f" Results saved in: {args.output_dir}")
         print(f" Main results file: {all_results_csv}")
-        
+
     elif args.step_wise:
         # Step wise mode: run experiments for all timesteps
         print(f"Running step wise experiment")
@@ -483,3 +506,4 @@ def main():
 
 if __name__ == "__main__":
     main() 
+    

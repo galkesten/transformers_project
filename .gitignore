@@ -3,3 +3,6 @@ slurm*
 *.tar.gz
 post_layer_norm_latents.tar.gz
 *.pth
+ablation_results/sample_images/*
+mmdetection/
+*.lock

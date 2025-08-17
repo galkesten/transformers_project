@@ -60,3 +60,219 @@
 
 
   python src/genEval/generation/diffusers_generate.py   src/genEval/prompts/eval.jsonl   --outdir sana_images   --n_samples 4   --batch_size 10   --seed 42 --ablation_type mean_per_token --mean_activations_file mean_ablations/mean_activations_mix_ffn.pt --ablation_layer 0 --ablation_component mix_ffn --timesteps 1 --step_wise
+
+
+./py-sbatch.sh src/genEval/run_ablation_pipeline.py \
+  --n_samples 2 \
+  --seed 42 \
+  --batch_size 2 \
+  --ablation_type mean_over_tokens \
+  --ablation_component mix_ffn \
+  --prompts_file src/genEval/prompts/evaluation_metadata.jsonl \
+  --output_dir ablation_results \
+  --sample_images_per_layer 4
+
+
+
+./py-sbatch.sh src/genEval/run_ablation_pipeline.py \
+  --n_samples 2 \
+  --seed 42 \
+  --batch_size 2 \
+  --ablation_type mean_over_tokens \
+  --ablation_component cross_attn \
+  --prompts_file src/genEval/prompts/evaluation_metadata.jsonl \
+  --output_dir ablation_results \
+  --sample_images_per_layer 4
+
+
+  ./py-sbatch.sh src/genEval/run_ablation_pipeline.py \
+  --n_samples 2 \
+  --seed 42 \
+  --batch_size 2 \
+  --ablation_type mean_over_tokens \
+  --ablation_component self_attn \
+  --prompts_file src/genEval/prompts/evaluation_metadata.jsonl \
+  --output_dir ablation_results \
+  --sample_images_per_layer 4
+
+
+./py-sbatch.sh src/genEval/run_ablation_pipeline.py \
+  --n_samples 2 \
+  --seed 42 \
+  --batch_size 2 \
+  --ablation_type zero \
+  --ablation_component mix_ffn \
+  --prompts_file src/genEval/prompts/evaluation_metadata.jsonl \
+  --output_dir ablation_results \
+  --sample_images_per_layer 4 \
+  --step_wise
+
+
+
+./py-sbatch.sh src/genEval/run_ablation_pipeline.py \
+  --n_samples 2 \
+  --seed 42 \
+  --batch_size 2 \
+  --ablation_type zero \
+  --ablation_component cross_attn \
+  --prompts_file src/genEval/prompts/evaluation_metadata.jsonl \
+  --output_dir ablation_results \
+  --sample_images_per_layer 4 \
+  --step_wise
+
+
+  ./py-sbatch.sh src/genEval/run_ablation_pipeline.py \
+  --n_samples 2 \
+  --seed 42 \
+  --batch_size 2 \
+  --ablation_type zero \
+  --ablation_component self_attn \
+  --prompts_file src/genEval/prompts/evaluation_metadata.jsonl \
+  --output_dir ablation_results \
+  --sample_images_per_layer 4 \
+  --step_wise
+
+
+ ./py-sbatch.sh src/genEval/collect_mean_activations.py src/genEval/prompts/evaluation_metadata.jsonl \
+  --n_samples 2 \
+  --outdir mean_ablations \
+  --ablation_component cross_attn \
+  --batch_size 2 \
+  --seed 42
+
+
+   ./py-sbatch.sh src/genEval/collect_mean_activations.py src/genEval/prompts/evaluation_metadata.jsonl \
+  --n_samples 2 \
+  --outdir mean_ablations \
+  --ablation_component self_attn \
+  --batch_size 2 \
+  --seed 42
+
+  ./py-sbatch.sh src/genEval/collect_mean_activations.py src/genEval/prompts/evaluation_metadata.jsonl \
+  --n_samples 2 \
+  --outdir mean_ablations \
+  --ablation_component mix_ffn \
+  --batch_size 2 \
+  --seed 42
+
+
+./py-sbatch.sh src/genEval/collect_mean_activations.py src/genEval/prompts/evaluation_metadata.jsonl   --n_samples 2   --outdir mean_ablations   --ablation_component cross_attn   --batch_size 2   --seed 42
+
+
+./py-sbatch.sh src/genEval/run_ablation_pipeline.py \
+  --n_samples 2 \
+  --seed 42 \
+  --batch_size 2 \
+  --ablation_type mean_per_token \
+  --ablation_component mix_ffn \
+  --prompts_file src/genEval/prompts/evaluation_metadata.jsonl \
+  --output_dir ablation_results \
+  --sample_images_per_layer 4 \
+  --mean_activations_file /home/galkesten/transformers_project/mean_ablations/mean_activations_mix_ffn.pt
+
+
+
+./py-sbatch.sh src/genEval/run_ablation_pipeline.py \
+  --n_samples 2 \
+  --seed 42 \
+  --batch_size 2 \
+  --ablation_type mean_per_token \
+  --ablation_component cross_attn \
+  --prompts_file src/genEval/prompts/evaluation_metadata.jsonl \
+  --output_dir ablation_results \
+  --sample_images_per_layer 4 \
+  --mean_activations_file /home/galkesten/transformers_project/mean_ablations/mean_activations_cross_attn.pt
+
+
+  ./py-sbatch.sh src/genEval/run_ablation_pipeline.py \
+  --n_samples 2 \
+  --seed 42 \
+  --batch_size 2 \
+  --ablation_type mean_per_token \
+  --ablation_component self_attn \
+  --prompts_file src/genEval/prompts/evaluation_metadata.jsonl \
+  --output_dir ablation_results \
+  --sample_images_per_layer 4 \
+  --mean_activations_file /home/galkesten/transformers_project/mean_ablations/mean_activations_self_attn.pt
+
+
+
+
+
+  ./py-sbatch.sh src/genEval/run_ablation_pipeline.py \
+  --n_samples 2 \
+  --seed 42 \
+  --batch_size 2 \
+  --ablation_type mean_over_tokens  \
+  --ablation_component mix_ffn \
+  --prompts_file src/genEval/prompts/evaluation_metadata.jsonl \
+  --output_dir ablation_results \
+  --sample_images_per_layer 4 \
+  --step_wise
+
+
+
+./py-sbatch.sh src/genEval/run_ablation_pipeline.py \
+  --n_samples 2 \
+  --seed 42 \
+  --batch_size 2 \
+  --ablation_type mean_over_tokens  \
+  --ablation_component cross_attn \
+  --prompts_file src/genEval/prompts/evaluation_metadata.jsonl \
+  --output_dir ablation_results \
+  --sample_images_per_layer 4 \
+  --step_wise
+
+
+  ./py-sbatch.sh src/genEval/run_ablation_pipeline.py \
+  --n_samples 2 \
+  --seed 42 \
+  --batch_size 2 \
+  --ablation_type mean_over_tokens  \
+  --ablation_component self_attn \
+  --prompts_file src/genEval/prompts/evaluation_metadata.jsonl \
+  --output_dir ablation_results \
+  --sample_images_per_layer 4 \
+  --step_wise
+
+
+
+
+  ./py-sbatch.sh src/genEval/run_ablation_pipeline.py \
+  --n_samples 2 \
+  --seed 42 \
+  --batch_size 2 \
+  --ablation_type mean_per_token \
+  --ablation_component mix_ffn \
+  --prompts_file src/genEval/prompts/evaluation_metadata.jsonl \
+  --output_dir ablation_results \
+  --sample_images_per_layer 4 \
+  --mean_activations_file /home/galkesten/transformers_project/mean_ablations/mean_activations_mix_ffn.pt \
+  --step_wise
+
+
+
+./py-sbatch.sh src/genEval/run_ablation_pipeline.py \
+  --n_samples 2 \
+  --seed 42 \
+  --batch_size 2 \
+  --ablation_type mean_per_token \
+  --ablation_component cross_attn \
+  --prompts_file src/genEval/prompts/evaluation_metadata.jsonl \
+  --output_dir ablation_results \
+  --sample_images_per_layer 4 \
+  --mean_activations_file /home/galkesten/transformers_project/mean_ablations/mean_activations_cross_attn.pt \
+   --step_wise
+
+
+  ./py-sbatch.sh src/genEval/run_ablation_pipeline.py \
+  --n_samples 2 \
+  --seed 42 \
+  --batch_size 2 \
+  --ablation_type mean_per_token \
+  --ablation_component self_attn \
+  --prompts_file src/genEval/prompts/evaluation_metadata.jsonl \
+  --output_dir ablation_results \
+  --sample_images_per_layer 4 \
+  --mean_activations_file /home/galkesten/transformers_project/mean_ablations/mean_activations_self_attn.pt \
+  --step_wise

@@ -314,6 +314,7 @@ def main():
     parser.add_argument("--component_type", type=str, choices=["self_attn", "cross_attn", "mix_ffn"], default="mix_ffn")
     parser.add_argument("--timesteps", type=int, nargs="+", default=[])
     parser.add_argument("--use_contributions_mode", action="store_true", help="Whether to use contributions mode.")
+    parser.add_argument("--layers", type=int, nargs="+", default=[])
 
 
     args = parser.parse_args()
@@ -322,6 +323,11 @@ def main():
         raise ValueError("you cant use both timesteps step and timesteps")
     if len(args.timesteps) == 0 and args.timesteps_step <= 0:
         raise ValueError("you should specify timesteps step or timesteps")
+    if len(args.layers) > 0 and args.layers_step > 0:
+        raise ValueError("you cant use both layers step and layers")
+    if len(args.layers) == 0 and args.layers_step <= 0:
+        raise ValueError("you should specify layers step or layers")
+
     print(f"args.save latents: {args.save_latents}")
     print(f"args.save activations: {args.save_activations}")
     print(f"args.save_post_final_layer_norm_latents: {args.save_post_final_layer_norm_latents}")
@@ -342,7 +348,7 @@ def main():
     else args.timesteps
     
     )
-    layers = get_layers(pipe=pipe.transformer, layers_step_size=args.layers_step)
+    layers = get_layers(pipe=pipe.transformer, layers_step_size=args.layers_step) if args.layers_step > 0 else args.layers
     
     print(f"Time steps : {timesteps}")
     print(f"Layers : {layers}")
