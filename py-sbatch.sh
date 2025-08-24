@@ -36,8 +36,8 @@ MAIL_TYPE=ALL # Valid values are NONE, BEGIN, END, FAIL, REQUEUE, ALL
 # Conda parameters
 # 	# -x nlp-2080-1,nlp-2080-2,nlp-a40-1 \
 CONDA_HOME=$HOME/miniconda3
-CONDA_ENV=gen_eval
-
+#CONDA_ENV=gen_eval
+CONDA_ENV=sana
 sbatch \
 	-p nlp\
 	-A nlp\

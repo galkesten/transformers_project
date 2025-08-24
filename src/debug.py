@@ -1,23 +1,11 @@
-import torch
 
-load = torch.load("mean_ablations/mean_activations_mix_ffn.pt")
-print(load)
-are_there_nans = torch.isnan(load).any()
-print(are_there_nans)
-print(load.shape)
-#print if there are infs
-print(torch.isinf(load).any())
-#print if there are nans
-print(torch.isnan(load).any())
-#print if there are infs or nans
-print(torch.isinf(load).any() or torch.isnan(load).any())
-#print if there are infs or nans
-print(load.to(torch.float16).isnan().any())
-print(load.to(torch.float16).isinf().any())
-print(load.to(torch.float16).isnan().any() or load.to(torch.float16).isinf().any())
-
-
-
-
-
+import torch, diffusers, transformers, xformers
+print("torch:", torch.__version__, "cuda:", torch.version.cuda)
+print("diffusers:", diffusers.__version__)
+print("transformers:", transformers.__version__)
+print("xformers:", xformers.__version__)
+try:
+    import triton; print("triton:", triton.__version__)
+except Exception as e:
+    print("triton: NOT AVAILABLE ->", e)
 

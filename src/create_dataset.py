@@ -309,7 +309,7 @@ def main():
     parser.add_argument("--save_latents", action="store_true", help="Whether to save latents.")
     parser.add_argument("--save_activations", action="store_true", help="Whether to save activations.")
     parser.add_argument("--save_post_final_layer_norm_latents", action="store_true", help="Whether to save post-final-layer-norm latents.")
-    parser.add_argument("--layers_step", type=int, default=5, help="Layer step size")
+    parser.add_argument("--layers_step", type=int, default=-1, help="Layer step size")
     parser.add_argument("--timesteps_step", type=int, default=-1)
     parser.add_argument("--component_type", type=str, choices=["self_attn", "cross_attn", "mix_ffn"], default="mix_ffn")
     parser.add_argument("--timesteps", type=int, nargs="+", default=[])

@@ -328,6 +328,31 @@ python src/create_figures_layers.py --csv sana_outputs/results_mae_activations.c
   --batch_size 4 \
   --save_activations \
   --component_type mix_ffn \
-  --layers 1 2 3 4 6 
+  --layers 1 2 3 4 6 \
+  --timesteps 999 \
+  --use_contributions_mode
+
+
+    ./py-sbatch.sh src/create_dataset.py \
+  --output_dir sana_outputs \
+  --n_train 10000 \
+  --n_test 1000 \
+  --batch_size 4 \
+  --save_activations \
+  --component_type mix_ffn \
+  --layers 7 8 9 11 12 \
+  --timesteps 999 \
+  --use_contributions_mode
+
+
+
+  ./py-sbatch.sh src/create_dataset.py \
+  --output_dir sana_outputs \
+  --n_train 10000 \
+  --n_test 1000 \
+  --batch_size 4 \
+  --save_activations \
+  --component_type mix_ffn \
+  --layers 13 14 16 17 18 \
   --timesteps 999 \
   --use_contributions_mode
