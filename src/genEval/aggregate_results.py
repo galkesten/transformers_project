@@ -2,7 +2,7 @@ import pandas as pd
 import os
 
 component_names = [ "cross_attn", "self_attn", "mix_ffn"]
-results_folder = "/home/galkesten/transformers_project/ablation_results"
+results_folder = "transformers_project/ablation_results"
 ablation_types = ["zero", "mean_over_tokens", "mean_per_token"]
 
 for component_name in component_names:

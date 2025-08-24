@@ -1,0 +1,81 @@
+#collect activations
+
+    # timestps experiement 
+
+    # collect activations
+
+    ./py-sbatch.sh src/create_dataset.py \
+    --output_dir sana_outputs \
+    --n_train 10000 \
+    --n_test 1000 \
+    --batch_size 4 \
+    --save_post_final_layer_norm_latents \
+    --timesteps_step 5
+
+    #train probes
+    
+    ./py-sbatch.sh src/run_all_probes.py --base_folder sana_outputs --kernel_size 1 --gradient_type Gaussian --latents_name post_layer_norm_latents
+    ./py-sbatch.sh src/run_all_probes.py --base_folder sana_outputs --kernel_size 1 --gradient_type Vertical --latents_name post_layer_norm_latents
+    ./py-sbatch.sh src/run_all_probes.py --base_folder sana_outputs --kernel_size 1 --gradient_type Horizontal --latents_name post_layer_norm_latents
+
+     ./py-sbatch.sh src/create_baseline_dataset.py
+
+    
+    #create tables
+
+    python src/create tables_timesteps.py
+
+
+
+# components experiement
+
+  ./py-sbatch.sh src/create_dataset.py \
+  --output_dir sana_outputs \
+  --n_train 10000 \
+  --n_test 1000 \
+  --batch_size 4 \
+  --save_activations \
+  --component_type cross_attn \
+  --layers_step 5 \
+  --timesteps 999 \
+  --use_contributions_mode
+
+
+    ./py-sbatch.sh src/create_dataset.py \
+  --output_dir sana_outputs \
+  --n_train 10000 \
+  --n_test 1000 \
+  --batch_size 4 \
+  --save_activations \
+  --component_type mix_ffn \
+  --layers_step 5 \
+  --timesteps 999 \
+  --use_contributions_mode
+
+  ./py-sbatch.sh src/create_dataset.py \
+  --output_dir sana_outputs \
+  --n_train 10000 \
+  --n_test 1000 \
+  --batch_size 4 \
+  --save_activations \
+  --component_type self_attn \
+  --layers_step 5 \
+  --timesteps 999 \
+  --use_contributions_mode
+
+
+   #train probes
+    
+   
+  ./py-sbatch.sh src/run_all_probes.py --base_folder sana_outputs --kernel_size 1 --gradient_type Horizontal --latents_name activations
+  ./py-sbatch.sh src/run_all_probes.py --base_folder sana_outputs --kernel_size 1 --gradient_type Vertical --latents_name activations
+  ./py-sbatch.sh src/run_all_probes.py --base_folder sana_outputs --kernel_size 1 --gradient_type Gaussian --latents_name activations
+
+#create tables
+
+python src/create_tables_layers.py
+
+
+
+
+    

@@ -28,8 +28,8 @@
 NUM_NODES=1
 NUM_CORES=4
 NUM_GPUS=1
-JOB_NAME=
-MAIL_USER=
+JOB_NAME="baseline"
+MAIL_USER="galkesten@campus.technion.ac.il"
 MAIL_TYPE=ALL # Valid values are NONE, BEGIN, END, FAIL, REQUEUE, ALL
 
 ###
@@ -37,7 +37,7 @@ MAIL_TYPE=ALL # Valid values are NONE, BEGIN, END, FAIL, REQUEUE, ALL
 # 	# -x nlp-2080-1,nlp-2080-2,nlp-a40-1 \
 CONDA_HOME=$HOME/miniconda3
 #CONDA_ENV=gen_eval
-CONDA_ENV=
+CONDA_ENV=sana
 sbatch \
 	-p nlp\
 	-A nlp\
