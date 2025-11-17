@@ -1,0 +1,19 @@
+./py-sbatch.sh src/train_probes_online.py \
+    --n_train 40 \
+    --n_eval 20 \
+    --num_epochs 2 \
+    --batch_size 16 \
+    --seed 42 \
+    --kernel_size 1 \
+    --gradient_types Vertical Horizontal Gaussian \
+    --component_types self_attn cross_attn mix_ffn \
+    --timesteps all \
+    --layers all \
+    --use_contributions_mode \
+    --hook_patch_embed \
+    --hook_proj_out \
+    --save_probes \
+    --save_images \
+    --probes_output_dir probing/probes \
+    --images_output_dir probing/images \
+    --output_csv probing/results_csvs/results.csv

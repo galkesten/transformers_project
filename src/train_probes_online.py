@@ -7,6 +7,7 @@ import argparse
 import csv
 import random
 import uuid
+import time
 from scipy.stats import spearmanr
 from collections import defaultdict
 from diffusers import SanaPipeline
@@ -23,13 +24,14 @@ DEFAULT_WEIGHT_DECAY = 1e-4
 
 # Global state
 current_timestep = None
-probes_dict = {}  # {(timestep, layer/position, component): probe}
-optimizers_dict = {}  # {(timestep, layer/position, component): optimizer}
-targets_dict = {}  # {(timestep, layer/position, component): target}
+probes_dict = {}  # {(timestep, layer/position, component, gradient_type): probe}
+optimizers_dict = {}  # {(timestep, layer/position, component, gradient_type): optimizer}
+targets_dict = {}  # {(timestep, layer/position, component, gradient_type): target}
 training_mode = True
 normalize_latents_with_layer_norm = False
 layer_norm = None
 eval_metrics = defaultdict(lambda: defaultdict(list))  # {key: {'mae': [...], 'spearman': [...]}}
+batch_activations_dict = {}  # {(timestep, position, component, gradient_type): tensor} - cleared after each batch
 
 def load_model():
     pipe = SanaPipeline.from_pretrained(
@@ -60,25 +62,47 @@ def generate_gradient_map(H, W, map_type):
 
     return gradient
 
-def initialize_probe(C, H, W, kernel_size, gradient_type, device):
-    """Initialize a probe and its target"""
+def initialize_probe(C, H, W, kernel_size, gradient_type, device, dtype=None):
+    """Initialize a probe and its target
+    
+    Args:
+        dtype: Data type for the probe (should match model's activation dtype)
+    """
+    # Create probe and move to device
+    # NOTE: Always use float32 for probes to avoid numerical instability during training
     probe = nn.Conv2d(C, 1, kernel_size=(kernel_size, kernel_size), stride=1, padding=0).to(device)
+    probe = probe.to(dtype=torch.float32)
+    
+    # Initialize weights
     nn.init.xavier_uniform_(probe.weight)
     nn.init.zeros_(probe.bias)
     
+    # Ensure parameters require grad (critical for training, especially after dtype conversion)
+    # This is done after initialization to ensure it's set correctly
+    for param in probe.parameters():
+        param.requires_grad = True
+    
+    # Set probe to training mode (done once during initialization)
+    probe.train()
+    
     # Create target
+    # NOTE: Always use float32 for targets to match probe dtype
     with torch.no_grad():
-        dummy_input = torch.zeros(1, C, H, W).to(device)
+        dummy_input = torch.zeros(1, C, H, W, dtype=torch.float32).to(device)
         output = probe(dummy_input)
         _, _, out_H, out_W = output.shape
         target = generate_gradient_map(out_H, out_W, gradient_type).unsqueeze(0).unsqueeze(0).to(device)
+        target = target.to(dtype=torch.float32)
     
     return probe, target
 
-def initialize_all_probes(timesteps, components_config, kernel_size, gradient_types, device, sample_shape):
+def initialize_all_probes(timesteps, components_config, kernel_size, gradient_types, device, sample_shape, dtype=None):
     """Initialize all probes for all timestep/position/component/gradient_type combinations
     
     components_config is a dict: {component_name: [list of positions]}
+    
+    Args:
+        dtype: Data type for the probes (should match model's activation dtype)
     """
     global probes_dict, optimizers_dict, targets_dict
     
@@ -89,7 +113,7 @@ def initialize_all_probes(timesteps, components_config, kernel_size, gradient_ty
             for pos in comp_positions:
                 for grad_type in gradient_types:
                     key = (ts, pos, component, grad_type)
-                    probe, target = initialize_probe(C, H, W, kernel_size, grad_type, device)
+                    probe, target = initialize_probe(C, H, W, kernel_size, grad_type, device, dtype=dtype)
                     optimizer = torch.optim.Adam(probe.parameters(), lr=DEFAULT_LR, weight_decay=DEFAULT_WEIGHT_DECAY)
                     
                     probes_dict[key] = probe
@@ -98,76 +122,111 @@ def initialize_all_probes(timesteps, components_config, kernel_size, gradient_ty
                     
                     print(f"Initialized probe for timestep={ts}, position={pos}, component={component}, gradient={grad_type}")
 
-def time_hook(mod, inp, out):
+def transformer_forward_pre_hook(mod, args, kwargs=None):
+    """Pre-hook on transformer forward to set timestep BEFORE patch_embed fires
+    
+    Sana transformer forward signature:
+        forward(self, hidden_states, encoder_hidden_states, timestep, ...)
+    
+    Note: Sana pipeline passes timestep as a keyword argument (line 946 in pipeline_sana.py)
+    """
     global current_timestep
-    current_timestep = int(inp[0][0].item())
+    
+    # Get timestep from kwargs (Sana pipeline uses keyword arguments)
+    if not kwargs or 'timestep' not in kwargs:
+        raise RuntimeError(
+            f"Could not find 'timestep' in kwargs. "
+            f"Args: {len(args)}, kwargs: {list(kwargs.keys()) if kwargs else 'None'}. "
+            f"Make sure with_kwargs=True is set when registering this hook."
+        )
+    
+    timestep = kwargs['timestep']
+    
+    # Set current_timestep
+    if isinstance(timestep, torch.Tensor):
+        current_timestep = int(timestep[0].item()) if timestep.dim() > 0 else int(timestep.item())
+    else:
+        current_timestep = int(timestep)
+    
     print(f"Current timestep: {current_timestep}")
 
-def make_component_hook(position, component_type, timesteps, gradient_types):
-    """Hook that performs backward pass for the relevant probe during training"""
+def reset_timestep():
+    """Reset global timestep variable to None"""
+    global current_timestep
+    current_timestep = None
+
+def make_unified_hook(position, component_type, timesteps, gradient_types, use_input=False):
+    """Unified hook that collects activations during forward pass for training/evaluation.
+    
+    Args:
+        position: Layer number, "initial", or "final"
+        component_type: Component name (e.g., "self_attn", "patch_embed", "proj_out")
+        timesteps: List of timesteps to hook
+        gradient_types: List of gradient types to collect
+        use_input: If True, hook the input instead of output (for proj_out)
+    """
     def hook_fn(mod, inp, out):
-        global current_timestep, training_mode, normalize_latents_with_layer_norm, layer_norm
+        global current_timestep, training_mode, normalize_latents_with_layer_norm, layer_norm, batch_activations_dict, eval_metrics
         
         if current_timestep not in timesteps:
             return
         
-        if not isinstance(out, torch.Tensor):
-            return
+        # Get the tensor to process (input or output)
+        if use_input:
+            if not isinstance(inp[0], torch.Tensor):
+                return
+            tensor = inp[0]
+        else:
+            if not isinstance(out, torch.Tensor):
+                return
+            tensor = out
         
-        # Reshape output to [B, C, H, W]
-        if out.dim() == 3:
-            b, l, d = out.shape
-            shaped_out = out.unflatten(1, (int(l**0.5), int(l**0.5))).permute(0, 3, 1, 2)
-        elif out.dim() == 4:
-            shaped_out = out
+        # Reshape tensor to [B, C, H, W]
+        if tensor.dim() == 3:
+            b, l, d = tensor.shape
+            shaped = tensor.unflatten(1, (int(l**0.5), int(l**0.5))).permute(0, 3, 1, 2)
+        elif tensor.dim() == 4:
+            shaped = tensor
         else:
             return
         
         # Extract guided activations (second half of batch)
-        mid = shaped_out.shape[0] // 2
-        guided = shaped_out[mid:].detach()  # Detach to prevent gradients flowing back to model
+        mid = shaped.shape[0] // 2
+        guided = shaped[mid:].detach().cpu()  # Detach and move to CPU to save GPU memory
         
-        # Normalize if needed (for both training and evaluation)
+        # Normalize if needed
         if normalize_latents_with_layer_norm and layer_norm is not None:
             B, C, H, W = guided.shape
             guided = guided.permute(0, 2, 3, 1)
             with torch.no_grad():
-                guided = layer_norm(guided)
+                guided_gpu = guided.to(layer_norm.weight.device)
+                guided_gpu = layer_norm(guided_gpu)
+                guided = guided_gpu.cpu()
             guided = guided.permute(0, 3, 1, 2)
         
         if training_mode:
-            # Training: perform backward pass for each gradient type
-            B = guided.shape[0]
-            
+            # Training mode: store activations for later training
             for grad_type in gradient_types:
                 key = (current_timestep, position, component_type, grad_type)
-                if key not in probes_dict:
-                    raise ValueError(f"Probe not found for key: {key}")
-                
-                probe = probes_dict[key]
-                optimizer = optimizers_dict[key]
-                target = targets_dict[key]
-                
-                optimizer.zero_grad()
-                output = probe(guided)
-                loss = nn.MSELoss()(output, target.expand(B, -1, -1, -1))
-                loss.backward()
-                optimizer.step()
+                if key in probes_dict:
+                    # Store activation (will train after pipeline call completes)
+                    batch_activations_dict[key] = guided.clone()
         else:
-            # Evaluation: evaluate on the fly and accumulate metrics
+            # Evaluation mode: evaluate on the fly
             B = guided.shape[0]
-            
             for grad_type in gradient_types:
                 key = (current_timestep, position, component_type, grad_type)
                 if key not in probes_dict:
-                    raise ValueError(f"Probe not found for key: {key}")
+                    continue
                 
                 probe = probes_dict[key]
                 target = targets_dict[key]
                 
                 probe.eval()
                 with torch.no_grad():
-                    output = probe(guided)
+                    # Convert to float32 for stable evaluation
+                    guided_gpu = guided.to(probe.weight.device).to(torch.float32)
+                    output = probe(guided_gpu)
                     truth = target.expand(B, -1, -1, -1)
                     
                     # Compute metrics for each sample in batch
@@ -188,7 +247,9 @@ def make_component_hook(position, component_type, timesteps, gradient_types):
 
 def register_time_step_hook(model):
     handles = []
-    handles.append(model.time_embed.register_forward_hook(time_hook))
+    # Register pre-hook on transformer to set timestep BEFORE patch_embed fires
+    # with_kwargs=True allows us to access named arguments (more robust than positional)
+    handles.append(model.register_forward_pre_hook(transformer_forward_pre_hook, with_kwargs=True))
     return handles
 
 def register_component_hooks(model, layers, timesteps, component_type, use_contributions_mode, gradient_types, train_on_block_output=False):
@@ -202,7 +263,7 @@ def register_component_hooks(model, layers, timesteps, component_type, use_contr
                 continue
             # Hook to the block's output (after all components)
             handles.append(block.register_forward_hook(
-                make_component_hook(i, "block_output", timesteps, gradient_types)))
+                make_unified_hook(i, "block_output", timesteps, gradient_types)))
     else:
         # Train on individual components
         for i, block in enumerate(transformer_blocks):
@@ -211,197 +272,34 @@ def register_component_hooks(model, layers, timesteps, component_type, use_contr
             if component_type == "self_attn" or component_type == "self_attn_after_gate":
                 if use_contributions_mode or component_type == "self_attn_after_gate":
                     handles.append(block.identity_after_attn.register_forward_hook(
-                        make_component_hook(i, "self_attn_after_gate", timesteps, gradient_types)))
+                        make_unified_hook(i, "self_attn_after_gate", timesteps, gradient_types)))
                 else:
                     handles.append(block.attn1.register_forward_hook(
-                        make_component_hook(i, "self_attn", timesteps, gradient_types)))
+                        make_unified_hook(i, "self_attn", timesteps, gradient_types)))
             elif component_type == "cross_attn":
                 handles.append(block.attn2.register_forward_hook(
-                    make_component_hook(i, "cross_attn", timesteps, gradient_types)))
+                    make_unified_hook(i, "cross_attn", timesteps, gradient_types)))
             elif component_type == "mix_ffn" or component_type == "mix_ffn_after_gate":
                 if use_contributions_mode or component_type == "mix_ffn_after_gate":
                     handles.append(block.identity_after_ff.register_forward_hook(
-                        make_component_hook(i, "mix_ffn_after_gate", timesteps, gradient_types)))
+                        make_unified_hook(i, "mix_ffn_after_gate", timesteps, gradient_types)))
                 else:
                     handles.append(block.ff.register_forward_hook(
-                        make_component_hook(i, "mix_ffn", timesteps, gradient_types)))
+                        make_unified_hook(i, "mix_ffn", timesteps, gradient_types)))
     return handles
 
 def register_patch_embed_hook(model, timesteps, gradient_types):
     """Register hook for patch_embed output (initial representation)"""
-    def make_patch_embed_hook(timesteps, gradient_types):
-        def hook_fn(mod, inp, out):
-            global current_timestep, training_mode, normalize_latents_with_layer_norm, layer_norm
-            
-            if current_timestep not in timesteps:
-                return
-            
-            if not isinstance(out, torch.Tensor):
-                return
-            
-            # Reshape output to [B, C, H, W]
-            if out.dim() == 3:
-                b, l, d = out.shape
-                shaped_out = out.unflatten(1, (int(l**0.5), int(l**0.5))).permute(0, 3, 1, 2)
-            elif out.dim() == 4:
-                shaped_out = out
-            else:
-                return
-            
-            # Extract guided activations
-            mid = shaped_out.shape[0] // 2
-            guided = shaped_out[mid:].detach()
-            
-            # Normalize if needed (for both training and evaluation)
-            if normalize_latents_with_layer_norm and layer_norm is not None:
-                B, C, H, W = guided.shape
-                guided = guided.permute(0, 2, 3, 1)
-                with torch.no_grad():
-                    guided = layer_norm(guided)
-                guided = guided.permute(0, 3, 1, 2)
-            
-            if training_mode:
-                # Training: perform backward pass for each gradient type
-                B = guided.shape[0]
-                
-                for grad_type in gradient_types:
-                    key = (current_timestep, "initial", "patch_embed", grad_type)
-                    if key not in probes_dict:
-                        continue
-                    
-                    probe = probes_dict[key]
-                    optimizer = optimizers_dict[key]
-                    target = targets_dict[key]
-                    
-                    optimizer.zero_grad()
-                    output = probe(guided)
-                    loss = nn.MSELoss()(output, target.expand(B, -1, -1, -1))
-                    loss.backward()
-                    optimizer.step()
-            else:
-                # Evaluation: evaluate on the fly and accumulate metrics
-                B = guided.shape[0]
-                
-                for grad_type in gradient_types:
-                    key = (current_timestep, "initial", "patch_embed", grad_type)
-                    if key not in probes_dict:
-                        continue
-                    
-                    probe = probes_dict[key]
-                    target = targets_dict[key]
-                    
-                    probe.eval()
-                    with torch.no_grad():
-                        output = probe(guided)
-                        truth = target.expand(B, -1, -1, -1)
-                        
-                        # Compute metrics for each sample in batch
-                        for j in range(B):
-                            pred_flat = output[j].flatten().cpu().numpy()
-                            target_flat = truth[j].flatten().cpu().numpy()
-                            
-                            # MAE
-                            mae = np.abs(pred_flat - target_flat).mean()
-                            eval_metrics[key]['mae'].append(mae)
-                            
-                            # Spearman correlation
-                            corr, _ = spearmanr(pred_flat, target_flat)
-                            if not np.isnan(corr):
-                                eval_metrics[key]['spearman'].append(corr)
-        
-        return hook_fn
-    
     handles = []
-    handles.append(model.patch_embed.register_forward_hook(make_patch_embed_hook(timesteps, gradient_types)))
+    handles.append(model.patch_embed.register_forward_hook(
+        make_unified_hook("initial", "patch_embed", timesteps, gradient_types, use_input=False)))
     return handles
 
 def register_proj_out_hook(model, timesteps, gradient_types):
-    """Register hook for proj_out output (final representation)"""
-    def make_proj_out_hook(timesteps, gradient_types):
-        def hook_fn(mod, inp, out):
-            global current_timestep, training_mode, normalize_latents_with_layer_norm, layer_norm
-            
-            if current_timestep not in timesteps:
-                return
-            
-            if not isinstance(inp[0], torch.Tensor):
-                return
-            
-            # Reshape input to [B, C, H, W]
-            inp_tensor = inp[0]
-            if inp_tensor.dim() == 3:
-                b, l, d = inp_tensor.shape
-                shaped_inp = inp_tensor.unflatten(1, (int(l**0.5), int(l**0.5))).permute(0, 3, 1, 2)
-            elif inp_tensor.dim() == 4:
-                shaped_inp = inp_tensor
-            else:
-                return
-            
-            # Extract guided activations
-            mid = shaped_inp.shape[0] // 2
-            guided = shaped_inp[mid:].detach()
-            
-            # Normalize if needed (for both training and evaluation)
-            if normalize_latents_with_layer_norm and layer_norm is not None:
-                B, C, H, W = guided.shape
-                guided = guided.permute(0, 2, 3, 1)
-                with torch.no_grad():
-                    guided = layer_norm(guided)
-                guided = guided.permute(0, 3, 1, 2)
-            
-            if training_mode:
-                # Training: perform backward pass for each gradient type
-                B = guided.shape[0]
-                
-                for grad_type in gradient_types:
-                    key = (current_timestep, "final", "proj_out", grad_type)
-                    if key not in probes_dict:
-                        continue
-                    
-                    probe = probes_dict[key]
-                    optimizer = optimizers_dict[key]
-                    target = targets_dict[key]
-                    
-                    optimizer.zero_grad()
-                    output = probe(guided)
-                    loss = nn.MSELoss()(output, target.expand(B, -1, -1, -1))
-                    loss.backward()
-                    optimizer.step()
-            else:
-                # Evaluation: evaluate on the fly and accumulate metrics
-                B = guided.shape[0]
-                
-                for grad_type in gradient_types:
-                    key = (current_timestep, "final", "proj_out", grad_type)
-                    if key not in probes_dict:
-                        continue
-                    
-                    probe = probes_dict[key]
-                    target = targets_dict[key]
-                    
-                    probe.eval()
-                    with torch.no_grad():
-                        output = probe(guided)
-                        truth = target.expand(B, -1, -1, -1)
-                        
-                        # Compute metrics for each sample in batch
-                        for j in range(B):
-                            pred_flat = output[j].flatten().cpu().numpy()
-                            target_flat = truth[j].flatten().cpu().numpy()
-                            
-                            # MAE
-                            mae = np.abs(pred_flat - target_flat).mean()
-                            eval_metrics[key]['mae'].append(mae)
-                            
-                            # Spearman correlation
-                            corr, _ = spearmanr(pred_flat, target_flat)
-                            if not np.isnan(corr):
-                                eval_metrics[key]['spearman'].append(corr)
-        
-        return hook_fn
-    
+    """Register hook for proj_out input (final representation)"""
     handles = []
-    handles.append(model.proj_out.register_forward_hook(make_proj_out_hook(timesteps, gradient_types)))
+    handles.append(model.proj_out.register_forward_hook(
+        make_unified_hook("final", "proj_out", timesteps, gradient_types, use_input=True)))
     return handles
 
 def install_forward_with_identities(block):
@@ -526,6 +424,37 @@ def get_layers(pipe, layers_step_size=5, layers_list=None, layers_all=False):
 
     return results
 
+def train_on_batch_activations(device):
+    """Train all probes on collected activations from one batch.
+    
+    Called after each pipeline forward pass completes.
+    """
+    global batch_activations_dict, probes_dict, optimizers_dict, targets_dict
+    
+    if not batch_activations_dict:
+        return
+    
+    # Train each probe on its collected activations
+    for key, activation in batch_activations_dict.items():
+        probe = probes_dict[key]
+        optimizer = optimizers_dict[key]
+        target = targets_dict[key]
+        
+        # Move activation to device and convert to float32 for stable training
+        activation = activation.to(device).to(torch.float32)
+        B = activation.shape[0]
+        
+        # Train the probe
+        probe.train()
+        optimizer.zero_grad()
+        output = probe(activation)
+        loss = nn.MSELoss()(output, target.expand(B, -1, -1, -1))
+        loss.backward()
+        optimizer.step()
+    
+    # Clear activations to free memory
+    batch_activations_dict.clear()
+
 def train_probes_online(prompt_dataset, pipe, hooks, num_epochs, batch_size, device):
     """Train probes on the fly by iterating through prompts for multiple epochs.
     
@@ -535,6 +464,9 @@ def train_probes_online(prompt_dataset, pipe, hooks, num_epochs, batch_size, dev
     global training_mode
     
     training_mode = True
+    
+    # Reset timestep to avoid stale values from previous runs
+    reset_timestep()
     
     # Create DataLoader WITHOUT shuffling
     # Use custom collate_fn to handle string batches
@@ -547,8 +479,12 @@ def train_probes_online(prompt_dataset, pipe, hooks, num_epochs, batch_size, dev
     # Dictionary to store batch_index -> seed mapping
     batch_seeds = {}
     
+    # Track total time per epoch
+    epoch_times = []
+    
     for epoch in range(num_epochs):
         print(f"Epoch {epoch + 1}/{num_epochs}")
+        epoch_start_time = time.time()
         
         for batch_idx, batch_prompts in enumerate(dataloader):
             # batch_prompts is already a list of strings from our collate_fn
@@ -557,12 +493,14 @@ def train_probes_online(prompt_dataset, pipe, hooks, num_epochs, batch_size, dev
             if epoch == 0:
                 batch_seed = random.randint(0, 99999)
                 batch_seeds[batch_idx] = batch_seed
-                print(f"  Batch {batch_idx + 1}/{num_batches} | {len(batch_prompts)} prompts | seed={batch_seed} (assigned)")
+                print(f"  Batch {batch_idx + 1}/{num_batches} | {len(batch_prompts)} prompts | seed={batch_seed} (assigned)", end="")
             else:
                 # Subsequent epochs: use saved seed
                 batch_seed = batch_seeds[batch_idx]
-                print(f"  Batch {batch_idx + 1}/{num_batches} | {len(batch_prompts)} prompts | seed={batch_seed} (reused)")
+                print(f"  Batch {batch_idx + 1}/{num_batches} | {len(batch_prompts)} prompts | seed={batch_seed} (reused)", end="")
             
+            # Time the batch
+            batch_start_time = time.time()
             generator = torch.Generator(device=device).manual_seed(batch_seed)
             _ = pipe(
                 prompt=batch_prompts,
@@ -572,8 +510,28 @@ def train_probes_online(prompt_dataset, pipe, hooks, num_epochs, batch_size, dev
                 num_inference_steps=20,
                 generator=generator,
             )
+            
+            # Train probes on collected activations from this batch
+            train_on_batch_activations(device)
+            
+            # Reset timestep after batch to avoid stale values
+            reset_timestep()
+            
+            batch_time = time.time() - batch_start_time
+            print(f" | time={batch_time:.2f}s")
         
-        print(f"  Epoch {epoch + 1} completed")
+        epoch_time = time.time() - epoch_start_time
+        epoch_times.append(epoch_time)
+        print(f"  Epoch {epoch + 1} completed | total_time={epoch_time:.2f}s | avg_batch_time={epoch_time/num_batches:.2f}s")
+    
+    # Print summary
+    if len(epoch_times) > 0:
+        total_training_time = sum(epoch_times)
+        avg_epoch_time = np.mean(epoch_times)
+        print(f"\nTraining Summary:")
+        print(f"  Total training time: {total_training_time:.2f}s ({total_training_time/60:.2f} minutes)")
+        print(f"  Average epoch time: {avg_epoch_time:.2f}s")
+        print(f"  Average batch time: {avg_epoch_time/num_batches:.2f}s")
 
 def evaluate_probes(prompt_dataset, pipe, hooks, batch_size, device):
     """Evaluate all probes on eval prompts using the same hooks as training.
@@ -588,6 +546,9 @@ def evaluate_probes(prompt_dataset, pipe, hooks, batch_size, device):
     # Set to evaluation mode (hooks will evaluate on-the-fly)
     training_mode = False
     
+    # Reset timestep to avoid stale values from training
+    reset_timestep()
+    
     # Create DataLoader WITHOUT shuffling (same as training)
     def collate_fn(batch):
         return batch  # Just return the list of strings as-is
@@ -599,12 +560,16 @@ def evaluate_probes(prompt_dataset, pipe, hooks, batch_size, device):
     batch_seeds = {}
     
     # Run evaluation (hooks will accumulate metrics automatically)
+    eval_start_time = time.time()
+    batch_times = []
+    
     for batch_idx, batch_prompts in enumerate(dataloader):
         batch_seed = random.randint(0, 99999)
         batch_seeds[batch_idx] = batch_seed
       
-        
-        print(f"Evaluating batch {batch_idx + 1}/{num_batches} | {len(batch_prompts)} prompts | seed={batch_seed}")
+        # Time the batch
+        batch_start_time = time.time()
+        print(f"Evaluating batch {batch_idx + 1}/{num_batches} | {len(batch_prompts)} prompts | seed={batch_seed}", end="")
         
         generator = torch.Generator(device=device).manual_seed(batch_seed)
         _ = pipe(
@@ -615,6 +580,20 @@ def evaluate_probes(prompt_dataset, pipe, hooks, batch_size, device):
             num_inference_steps=20,
             generator=generator,
         )
+        
+        # Reset timestep after batch to avoid stale values
+        reset_timestep()
+        
+        batch_time = time.time() - batch_start_time
+        batch_times.append(batch_time)
+        print(f" | time={batch_time:.2f}s")
+    
+    total_eval_time = time.time() - eval_start_time
+    if len(batch_times) > 0:
+        avg_batch_time = np.mean(batch_times)
+        print(f"\nEvaluation Summary:")
+        print(f"  Total evaluation time: {total_eval_time:.2f}s ({total_eval_time/60:.2f} minutes)")
+        print(f"  Average batch time: {avg_batch_time:.2f}s")
     
     # Aggregate metrics for all probes
     results = []
@@ -683,7 +662,8 @@ def save_eval_image(pred, save_dir, ts, pos, component, grad_type, example_idx, 
     
     os.makedirs(folder, exist_ok=True)
     
-    resized_pred = F.interpolate(pred.unsqueeze(0), size=(512, 512), mode="bilinear", align_corners=False)
+    # pred is already [1, 1, H, W], no need to unsqueeze
+    resized_pred = F.interpolate(pred, size=(512, 512), mode="bilinear", align_corners=False)
     pred_np = resized_pred[0, 0].detach().cpu().numpy()
     
     filename = f"example_{example_idx}_kernel_{kernel_size}_grad_{grad_type}.png"
@@ -754,7 +734,9 @@ def make_image_saving_hook(position, component_type, timesteps, gradient_types, 
             probe.eval()
             
             with torch.no_grad():
-                output = probe(guided)
+                # Convert to float32 to match probe dtype
+                guided_fp32 = guided.to(torch.float32)
+                output = probe(guided_fp32)
                 # Save only min(max_images, batch_size) images
                 num_to_save = min(max_images, output.shape[0])
                 for j in range(num_to_save):
@@ -778,6 +760,9 @@ def save_eval_images(prompt_dataset, pipe, hooks, batch_size, device, batch_seed
     
     # Set to evaluation mode
     training_mode = False
+    
+    # Reset timestep to avoid stale values
+    reset_timestep()
     
     # Register image-saving hooks for all relevant components
     print("Registering image-saving hooks...")
@@ -859,6 +844,9 @@ def save_eval_images(prompt_dataset, pipe, hooks, batch_size, device, batch_seed
         num_inference_steps=20,
         generator=generator,
     )
+    
+    # Reset timestep after batch
+    reset_timestep()
     
     # Remove image-saving hooks
     for hook in image_hooks:
@@ -1036,11 +1024,12 @@ def main():
     train_dataset = PromptDataset(train_prompts)
     eval_dataset = PromptDataset(eval_prompts)
     
-    # Get sample activation shape
-    print("Getting sample activation shape...")
+    # Get sample activation shape and dtype
+    print("Getting sample activation shape and dtype...")
     sample_shape = None
+    sample_dtype = None
     def get_shape_hook(mod, inp, out):
-        nonlocal sample_shape
+        nonlocal sample_shape, sample_dtype
         if out.dim() == 3:
             b, l, d = out.shape
             shaped_out = out.unflatten(1, (int(l**0.5), int(l**0.5))).permute(0, 3, 1, 2)
@@ -1052,6 +1041,7 @@ def main():
         guided = shaped_out[mid:]
         if sample_shape is None:
             sample_shape = guided.shape[1:]  # (C, H, W)
+            sample_dtype = guided.dtype
     
     # Try to get shape from first available component
     temp_hook = None
@@ -1092,12 +1082,15 @@ def main():
     
     if sample_shape is None:
         raise RuntimeError("Could not determine activation shape")
+    if sample_dtype is None:
+        raise RuntimeError("Could not determine activation dtype")
     
     print(f"Sample activation shape: {sample_shape}")
+    print(f"Sample activation dtype: {sample_dtype}")
     
     # Initialize all probes
     print("Initializing probes...")
-    initialize_all_probes(timesteps, components_config, args.kernel_size, args.gradient_types, device, (1,) + sample_shape)
+    initialize_all_probes(timesteps, components_config, args.kernel_size, args.gradient_types, device, (1,) + sample_shape, dtype=sample_dtype)
     
     # Register hooks
     print("Registering hooks...")
