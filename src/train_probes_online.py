@@ -32,6 +32,56 @@ normalize_latents_with_layer_norm = False
 layer_norm = None
 eval_metrics = defaultdict(lambda: defaultdict(list))  # {key: {'mae': [...], 'spearman': [...]}}
 batch_activations_dict = {}  # {(timestep, position, component, gradient_type): tensor} - cleared after each batch
+loss_stats_dict = defaultdict(lambda: defaultdict(list))  # {key: {'epoch': [epoch_num], 'batch_losses': [[losses_per_batch]], ...}}
+
+# === Learnable Modulated Layer Norm ===
+class LearnableModulatedLayerNorm(nn.Module):
+    """
+    Layer normalization with learnable shift and scale parameters.
+    Similar to Sana's modulated norm but with learnable parameters instead of timestep conditioning.
+    
+    Applies: x_normalized * (1 + scale) + shift
+    where shift and scale are learned during training.
+    
+    Input shape: [B, C, H, W] (channels first format)
+    """
+    def __init__(self, num_channels, eps=1e-6, init_zeros=False):
+        super().__init__()
+        # Base LayerNorm (normalizes over channel dimension)
+        # Note: LayerNorm expects [..., normalized_shape] so we'll need to permute
+        self.norm = nn.LayerNorm(num_channels, elementwise_affine=False, eps=eps)
+        
+        # Learnable shift and scale parameters (one per channel)
+        if init_zeros:
+            # Initialize to zeros: identity transformation x * (1 + 0) + 0 = x
+            self.shift = nn.Parameter(torch.zeros(num_channels))
+            self.scale = nn.Parameter(torch.zeros(num_channels))
+        else:
+            # Initialize similar to Sana: small random values scaled by 1/√num_channels
+            self.shift = nn.Parameter(torch.randn(num_channels) / (num_channels ** 0.5))
+            self.scale = nn.Parameter(torch.randn(num_channels) / (num_channels ** 0.5))
+    
+    def forward(self, x):
+        """
+        Args:
+            x: Input tensor of shape [B, C, H, W]
+        Returns:
+            Normalized and modulated tensor of shape [B, C, H, W]
+        """
+        # Permute from [B, C, H, W] to [B, H, W, C] for LayerNorm
+        x_permuted = x.permute(0, 2, 3, 1)
+        
+        # Apply base layer norm
+        x_norm = self.norm(x_permuted)
+        
+        # Apply learned modulation: (1 + scale) * x_norm + shift
+        # Broadcasting: shift and scale are [C], x_norm is [B, H, W, C]
+        x_modulated = x_norm * (1 + self.scale) + self.shift
+        
+        # Permute back to [B, C, H, W]
+        x_out = x_modulated.permute(0, 3, 1, 2)
+        
+        return x_out
 
 def load_model():
     pipe = SanaPipeline.from_pretrained(
@@ -62,20 +112,64 @@ def generate_gradient_map(H, W, map_type):
 
     return gradient
 
-def initialize_probe(C, H, W, kernel_size, gradient_type, device, dtype=None):
+def initialize_probe(C, H, W, kernel_size, gradient_type, device, dtype=None, architecture='linear', position=None, ln_init_zeros=False):
     """Initialize a probe and its target
     
     Args:
         dtype: Data type for the probe (should match model's activation dtype)
+        architecture: Probe architecture ('linear', 'mlp', or 'ln_conv')
+        position: Position identifier ('initial', layer number, or 'final') - used for 'ln_conv' architecture
+        ln_init_zeros: If True, initialize LayerNorm shift/scale with zeros; if False, use 1/√C (Sana-style)
     """
-    # Create probe and move to device
+    # Create probe based on architecture
     # NOTE: Always use float32 for probes to avoid numerical instability during training
-    probe = nn.Conv2d(C, 1, kernel_size=(kernel_size, kernel_size), stride=1, padding=0).to(device)
-    probe = probe.to(dtype=torch.float32)
+    if architecture == 'mlp':
+        # Non-linear MLP probe: Conv → ReLU → Conv
+        probe = nn.Sequential(
+            nn.Conv2d(C, C // 4, kernel_size=1, stride=1, padding=0),
+            nn.ReLU(),
+            nn.Conv2d(C // 4, 1, kernel_size=1, stride=1, padding=0)
+        ).to(device)
+        probe = probe.to(dtype=torch.float32)
+    elif architecture == 'ln_conv':
+        # Layer Norm + Conv architecture
+        # For 'final' position: just Conv (already has Sana's modulated norm)
+        # For other positions: LearnableModulatedLayerNorm + Conv
+        if position == 'final':
+            # Final representation already has Sana's norm_out, so just use Conv
+            probe = nn.Conv2d(C, 1, kernel_size=(kernel_size, kernel_size), stride=1, padding=0).to(device)
+        else:
+            # For intermediate layers: LayerNorm + Conv
+            probe = nn.Sequential(
+                LearnableModulatedLayerNorm(C, eps=1e-6, init_zeros=ln_init_zeros),
+                nn.Conv2d(C, 1, kernel_size=(kernel_size, kernel_size), stride=1, padding=0)
+            ).to(device)
+        probe = probe.to(dtype=torch.float32)
+    else:  # 'linear' (default)
+        # Standard linear probe
+        probe = nn.Conv2d(C, 1, kernel_size=(kernel_size, kernel_size), stride=1, padding=0).to(device)
+        probe = probe.to(dtype=torch.float32)
     
-    # Initialize weights
-    nn.init.xavier_uniform_(probe.weight)
-    nn.init.zeros_(probe.bias)
+    # Initialize weights (handle both single Conv2d and Sequential)
+    if architecture == 'mlp':
+        # Initialize each layer in the Sequential
+        for module in probe.modules():
+            if isinstance(module, nn.Conv2d):
+                nn.init.xavier_uniform_(module.weight)
+                nn.init.zeros_(module.bias)
+    elif architecture == 'ln_conv':
+        # Initialize Conv2d layers and LayerNorm parameters
+        for module in probe.modules():
+            if isinstance(module, nn.Conv2d):
+                nn.init.xavier_uniform_(module.weight)
+                nn.init.zeros_(module.bias)
+            elif isinstance(module, LearnableModulatedLayerNorm):
+                # shift and scale are already initialized in the class (random scaled by 1/√C)
+                pass
+    else:
+        # Initialize single Conv2d layer
+        nn.init.xavier_uniform_(probe.weight)
+        nn.init.zeros_(probe.bias)
     
     # Ensure parameters require grad (critical for training, especially after dtype conversion)
     # This is done after initialization to ensure it's set correctly
@@ -96,13 +190,16 @@ def initialize_probe(C, H, W, kernel_size, gradient_type, device, dtype=None):
     
     return probe, target
 
-def initialize_all_probes(timesteps, components_config, kernel_size, gradient_types, device, sample_shape, dtype=None):
+def initialize_all_probes(timesteps, components_config, kernel_size, gradient_types, device, sample_shape, dtype=None, architecture='linear', ln_init_zeros=False, learning_rate=1e-3):
     """Initialize all probes for all timestep/position/component/gradient_type combinations
     
     components_config is a dict: {component_name: [list of positions]}
     
     Args:
         dtype: Data type for the probes (should match model's activation dtype)
+        architecture: Probe architecture ('linear', 'mlp', or 'ln_conv')
+        ln_init_zeros: If True, initialize LayerNorm shift/scale with zeros; if False, use 1/√C (Sana-style)
+        learning_rate: Learning rate for probe optimization
     """
     global probes_dict, optimizers_dict, targets_dict
     
@@ -113,8 +210,8 @@ def initialize_all_probes(timesteps, components_config, kernel_size, gradient_ty
             for pos in comp_positions:
                 for grad_type in gradient_types:
                     key = (ts, pos, component, grad_type)
-                    probe, target = initialize_probe(C, H, W, kernel_size, grad_type, device, dtype=dtype)
-                    optimizer = torch.optim.Adam(probe.parameters(), lr=DEFAULT_LR, weight_decay=DEFAULT_WEIGHT_DECAY)
+                    probe, target = initialize_probe(C, H, W, kernel_size, grad_type, device, dtype=dtype, architecture=architecture, position=pos, ln_init_zeros=ln_init_zeros)
+                    optimizer = torch.optim.Adam(probe.parameters(), lr=learning_rate, weight_decay=DEFAULT_WEIGHT_DECAY)
                     
                     probes_dict[key] = probe
                     optimizers_dict[key] = optimizer
@@ -225,8 +322,20 @@ def make_unified_hook(position, component_type, timesteps, gradient_types, use_i
                 probe.eval()
                 with torch.no_grad():
                     # Convert to float32 for stable evaluation
-                    guided_gpu = guided.to(probe.weight.device).to(torch.float32)
+                    # Get device from probe parameters (works for both Conv2d and Sequential)
+                    probe_device = next(probe.parameters()).device
+                    guided_gpu = guided.to(probe_device).to(torch.float32)
+                    
+                    # Check for NaNs in activation during eval
+                    if torch.isnan(guided_gpu).any():
+                        raise ValueError(f"NaN detected in activation during evaluation for probe {key}. Activation shape: {guided_gpu.shape}")
+                    
                     output = probe(guided_gpu)
+                    
+                    # Check for NaNs in output during eval
+                    if torch.isnan(output).any():
+                        raise ValueError(f"NaN detected in probe output during evaluation for probe {key}. Output shape: {output.shape}")
+                    
                     truth = target.expand(B, -1, -1, -1)
                     
                     # Compute metrics for each sample in batch
@@ -234,8 +343,19 @@ def make_unified_hook(position, component_type, timesteps, gradient_types, use_i
                         pred_flat = output[j].flatten().cpu().numpy()
                         target_flat = truth[j].flatten().cpu().numpy()
                         
+                        # Check for NaNs in flattened arrays
+                        if np.isnan(pred_flat).any():
+                            raise ValueError(f"NaN detected in prediction array during evaluation for probe {key}, sample {j}. Shape: {pred_flat.shape}")
+                        if np.isnan(target_flat).any():
+                            raise ValueError(f"NaN detected in target array during evaluation for probe {key}, sample {j}. Shape: {target_flat.shape}")
+                        
                         # MAE
                         mae = np.abs(pred_flat - target_flat).mean()
+                        
+                        # Check for NaN in MAE
+                        if np.isnan(mae):
+                            raise ValueError(f"NaN detected in MAE computation during evaluation for probe {key}, sample {j}. MAE value: {mae}")
+                        
                         eval_metrics[key]['mae'].append(mae)
                         
                         # Spearman correlation
@@ -428,11 +548,16 @@ def train_on_batch_activations(device):
     """Train all probes on collected activations from one batch.
     
     Called after each pipeline forward pass completes.
+    
+    Returns:
+        dict: {key: loss_value} for each probe trained in this batch
     """
     global batch_activations_dict, probes_dict, optimizers_dict, targets_dict
     
+    batch_losses = {}
+    
     if not batch_activations_dict:
-        return
+        return batch_losses
     
     # Train each probe on its collected activations
     for key, activation in batch_activations_dict.items():
@@ -442,18 +567,38 @@ def train_on_batch_activations(device):
         
         # Move activation to device and convert to float32 for stable training
         activation = activation.to(device).to(torch.float32)
+        
+        # Check for NaNs in activation
+        if torch.isnan(activation).any():
+            raise ValueError(f"NaN detected in activation for probe {key}. Activation shape: {activation.shape}")
+        
         B = activation.shape[0]
         
         # Train the probe
         probe.train()
         optimizer.zero_grad()
         output = probe(activation)
+        
+        # Check for NaNs in output
+        if torch.isnan(output).any():
+            raise ValueError(f"NaN detected in probe output for probe {key}. Output shape: {output.shape}")
+        
         loss = nn.MSELoss()(output, target.expand(B, -1, -1, -1))
+        
+        # Check for NaN in loss
+        if torch.isnan(loss):
+            raise ValueError(f"NaN detected in loss for probe {key}. Loss value: {loss.item()}")
+        
         loss.backward()
         optimizer.step()
+        
+        # Store loss for this batch
+        batch_losses[key] = loss.item()
     
     # Clear activations to free memory
     batch_activations_dict.clear()
+    
+    return batch_losses
 
 def train_probes_online(prompt_dataset, pipe, hooks, num_epochs, batch_size, device):
     """Train probes on the fly by iterating through prompts for multiple epochs.
@@ -461,7 +606,7 @@ def train_probes_online(prompt_dataset, pipe, hooks, num_epochs, batch_size, dev
     Uses DataLoader without shuffling. In first epoch, randomly assigns seeds to batches
     and saves them. Subsequent epochs use the saved seeds for reproducibility.
     """
-    global training_mode
+    global training_mode, loss_stats_dict
     
     training_mode = True
     
@@ -481,6 +626,9 @@ def train_probes_online(prompt_dataset, pipe, hooks, num_epochs, batch_size, dev
     
     # Track total time per epoch
     epoch_times = []
+    
+    # Track losses per epoch for each probe: {key: {epoch_num: [batch_losses]}}
+    epoch_losses = defaultdict(lambda: defaultdict(list))
     
     for epoch in range(num_epochs):
         print(f"Epoch {epoch + 1}/{num_epochs}")
@@ -512,7 +660,11 @@ def train_probes_online(prompt_dataset, pipe, hooks, num_epochs, batch_size, dev
             )
             
             # Train probes on collected activations from this batch
-            train_on_batch_activations(device)
+            batch_losses = train_on_batch_activations(device)
+            
+            # Store batch losses for each probe
+            for key, loss_value in batch_losses.items():
+                epoch_losses[key][epoch].append(loss_value)
             
             # Reset timestep after batch to avoid stale values
             reset_timestep()
@@ -523,6 +675,15 @@ def train_probes_online(prompt_dataset, pipe, hooks, num_epochs, batch_size, dev
         epoch_time = time.time() - epoch_start_time
         epoch_times.append(epoch_time)
         print(f"  Epoch {epoch + 1} completed | total_time={epoch_time:.2f}s | avg_batch_time={epoch_time/num_batches:.2f}s")
+    
+    # Aggregate loss statistics per epoch for each probe
+    for key, epochs_dict in epoch_losses.items():
+        for epoch_num, batch_loss_list in epochs_dict.items():
+            if len(batch_loss_list) > 0:
+                loss_stats_dict[key]['epoch'].append(epoch_num)
+                loss_stats_dict[key]['mean_loss'].append(np.mean(batch_loss_list))
+                loss_stats_dict[key]['var_loss'].append(np.var(batch_loss_list))
+                loss_stats_dict[key]['max_loss'].append(np.max(batch_loss_list))
     
     # Print summary
     if len(epoch_times) > 0:
@@ -736,7 +897,17 @@ def make_image_saving_hook(position, component_type, timesteps, gradient_types, 
             with torch.no_grad():
                 # Convert to float32 to match probe dtype
                 guided_fp32 = guided.to(torch.float32)
+                
+                # Check for NaNs in activation during image saving
+                if torch.isnan(guided_fp32).any():
+                    raise ValueError(f"NaN detected in activation during image saving for probe {key}. Activation shape: {guided_fp32.shape}")
+                
                 output = probe(guided_fp32)
+                
+                # Check for NaNs in output during image saving
+                if torch.isnan(output).any():
+                    raise ValueError(f"NaN detected in probe output during image saving for probe {key}. Output shape: {output.shape}")
+                
                 # Save only min(max_images, batch_size) images
                 num_to_save = min(max_images, output.shape[0])
                 for j in range(num_to_save):
@@ -885,6 +1056,59 @@ def save_results_to_csv(results, output_path, kernel_size, unique_id):
     
     print(f"Results saved to {output_path}")
 
+def save_loss_stats_to_csv(output_path, kernel_size, unique_id, num_epochs):
+    """Save loss statistics (mean, var, max per epoch) for each probe to CSV"""
+    global loss_stats_dict
+    
+    # Add unique identifier to filename
+    base_name = os.path.splitext(output_path)[0]
+    ext = os.path.splitext(output_path)[1] or '.csv'
+    loss_output_path = f"{base_name}_loss_stats_{unique_id}{ext}"
+    
+    # Create directory if needed
+    output_dir = os.path.dirname(loss_output_path)
+    if output_dir:
+        os.makedirs(output_dir, exist_ok=True)
+    
+    # Build header with epoch columns
+    header = ['timestep', 'position', 'component', 'gradient_type', 'kernel_size']
+    for epoch in range(num_epochs):
+        header.extend([f'epoch_{epoch}_mean_loss', f'epoch_{epoch}_var_loss', f'epoch_{epoch}_max_loss'])
+    
+    with open(loss_output_path, 'w', newline='') as f:
+        writer = csv.writer(f)
+        writer.writerow(header)
+        
+        # Write data for each probe
+        for key, stats in loss_stats_dict.items():
+            timestep, position, component, gradient_type = key
+            row = [timestep, position, component, gradient_type, kernel_size]
+            
+            # Create a dict mapping epoch to its stats
+            epoch_to_stats = {}
+            for i, epoch_num in enumerate(stats['epoch']):
+                epoch_to_stats[epoch_num] = {
+                    'mean': stats['mean_loss'][i],
+                    'var': stats['var_loss'][i],
+                    'max': stats['max_loss'][i]
+                }
+            
+            # Add stats for each epoch (fill with NaN if epoch not present)
+            for epoch in range(num_epochs):
+                if epoch in epoch_to_stats:
+                    row.extend([
+                        epoch_to_stats[epoch]['mean'],
+                        epoch_to_stats[epoch]['var'],
+                        epoch_to_stats[epoch]['max']
+                    ])
+                else:
+                    # No data for this epoch (shouldn't happen but handle gracefully)
+                    row.extend([np.nan, np.nan, np.nan])
+            
+            writer.writerow(row)
+    
+    print(f"Loss statistics saved to {loss_output_path}")
+
 def main():
     parser = argparse.ArgumentParser(description="Train probes online during forward pass")
     parser.add_argument("--n_train", type=int, required=True, help="Number of training prompts")
@@ -892,7 +1116,13 @@ def main():
     parser.add_argument("--num_epochs", type=int, default=20, help="Number of training epochs")
     parser.add_argument("--batch_size", type=int, default=1, help="Batch size for prompts")
     parser.add_argument("--seed", type=int, default=42, help="Random seed")
+    parser.add_argument("--learning_rate", type=float, default=1e-3, help="Learning rate for probe training (default: 1e-3)")
     parser.add_argument("--kernel_size", type=int, default=1, help="Kernel size for probe")
+    parser.add_argument("--probe_architecture", type=str, default="linear", 
+                        choices=["linear", "mlp", "ln_conv"], 
+                        help="Probe architecture: 'linear' (standard), 'mlp' (non-linear with bottleneck), or 'ln_conv' (learnable layer norm + conv, conv only for final)")
+    parser.add_argument("--ln_init_zeros", action="store_true",
+                        help="For ln_conv architecture: initialize shift/scale with zeros instead of 1/√C (Sana-style). Ignored for other architectures.")
     parser.add_argument("--gradient_types", type=str, nargs="+", default=["Vertical"], 
                         choices=["Vertical", "Horizontal", "Gaussian"], help="Gradient types to train probes for")
     parser.add_argument("--layers_step", type=int, default=-1, help="Layer step size")
@@ -915,6 +1145,12 @@ def main():
     parser.add_argument("--output_csv", type=str, required=True, help="Output CSV file path")
     args = parser.parse_args()
     
+    #print all params in a genralized way 
+    print("Arguments:")
+    for arg, value in args.__dict__.items():
+        print(f"  {arg}: {value}")
+    print("-" * 50)
+
     # Validate arguments
     has_timesteps = len(args.timesteps) > 0
     has_timesteps_step = args.timesteps_step > 0
@@ -1090,7 +1326,11 @@ def main():
     
     # Initialize all probes
     print("Initializing probes...")
-    initialize_all_probes(timesteps, components_config, args.kernel_size, args.gradient_types, device, (1,) + sample_shape, dtype=sample_dtype)
+    print(f"Probe architecture: {args.probe_architecture}")
+    print(f"Learning rate: {args.learning_rate}")
+    if args.probe_architecture == 'ln_conv':
+        print(f"LayerNorm initialization: {'zeros (identity)' if args.ln_init_zeros else '1/√C (Sana-style)'}")
+    initialize_all_probes(timesteps, components_config, args.kernel_size, args.gradient_types, device, (1,) + sample_shape, dtype=sample_dtype, architecture=args.probe_architecture, ln_init_zeros=args.ln_init_zeros, learning_rate=args.learning_rate)
     
     # Register hooks
     print("Registering hooks...")
@@ -1137,6 +1377,10 @@ def main():
     # Save results
     print("Saving results...")
     save_results_to_csv(results, args.output_csv, args.kernel_size, unique_id)
+    
+    # Save loss statistics
+    print("Saving loss statistics...")
+    save_loss_stats_to_csv(args.output_csv, args.kernel_size, unique_id, args.num_epochs)
     
     # Cleanup
     for hook in hooks:

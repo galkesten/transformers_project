@@ -1,0 +1,17 @@
+# Analyze kernel size 1 results
+python src/probing_results/analyze_time_and_layers.py \
+    --pattern _k1_ \
+    --results_dir probing/results_csvs \
+    --output_dir probing/analysis_figures
+
+# Analyze kernel size 3 results
+python src/probing_results/analyze_time_and_layers.py \
+    --pattern k3 \
+    --results_dir probing/results_csvs \
+    --output_dir probing/analysis_figures
+
+# With conda environment
+conda activate sana && python src/probing_results/analyze_time_and_layers.py \
+    --pattern k1 \
+    --results_dir probing/results_csvs \
+    --output_dir probing/analysis_figures
