@@ -53,6 +53,10 @@ def load_all_results(results_dir="probing/results_csvs", filename_pattern=None):
         if len(csv_files) == 0:
             raise ValueError(f"No CSV files found with pattern '{filename_pattern}' in filename")
     
+    # Exclude loss_stats files
+    csv_files = [f for f in csv_files if "loss_stats" not in f]
+    print(f"After excluding loss_stats files: {len(csv_files)} files remaining")
+    
     # Load and merge all matching CSVs
     dfs = []
     for f in csv_files:

@@ -1,0 +1,316 @@
+#!/usr/bin/env python3
+
+import pandas as pd
+import numpy as np
+import plotly.graph_objects as go
+from plotly.subplots import make_subplots
+import plotly.io as pio
+import plotly.express as px
+from pathlib import Path
+import glob
+import argparse
+
+pio.kaleido.scope.mathjax = None
+
+def load_final_representation_data(results_dir="probing/results_csvs", filename_pattern=None):
+    csv_files = glob.glob(f"{results_dir}/*.csv")
+    print(f"Found {len(csv_files)} CSV files in {results_dir}")
+    
+    if filename_pattern:
+        csv_files = [f for f in csv_files if filename_pattern in f]
+        print(f"Filtered to {len(csv_files)} files containing '{filename_pattern}' in filename")
+        if len(csv_files) == 0:
+            raise ValueError(f"No CSV files found with pattern '{filename_pattern}' in filename")
+    
+    csv_files = [f for f in csv_files if "loss_stats" not in f]
+    print(f"After excluding loss_stats files: {len(csv_files)} files remaining")
+    
+    dfs = []
+    for f in csv_files:
+        df = pd.read_csv(f)
+        dfs.append(df)
+        print(f"  Loaded: {Path(f).name} ({len(df)} rows)")
+    
+    combined = pd.concat(dfs, ignore_index=True)
+    print(f"Total rows after merging: {len(combined)}")
+    
+    final_data = combined[(combined['position'] == 'final') & (combined['component'] == 'proj_out')].copy()
+    print(f"Rows after filtering for final representation: {len(final_data)}")
+    
+    initial_data = combined[(combined['position'] == 'initial') & (combined['component'] == 'patch_embed')].copy()
+    print(f"Rows after filtering for initial representation: {len(initial_data)}")
+    
+    return final_data, initial_data
+
+def plot_final_representation_mae_spearman(df, initial_df, output_dir="probing/figures", kernel_size=None, filename_suffix=""):
+    Path(output_dir).mkdir(parents=True, exist_ok=True)
+    
+    if kernel_size is not None:
+        df = df[df['kernel_size'] == kernel_size].copy()
+        initial_df = initial_df[initial_df['kernel_size'] == kernel_size].copy()
+        print(f"Filtered to kernel_size={kernel_size}: {len(df)} rows")
+    
+    if len(df) == 0:
+        print("No data to plot after filtering!")
+        return
+    
+    gradient_types = sorted(df['gradient_type'].unique())
+    print(f"Gradient types found: {gradient_types}")
+    
+    timesteps = sorted(df['timestep'].unique(), reverse=True)
+    print(f"Timesteps: {timesteps[:5]}...{timesteps[-2:]} ({len(timesteps)} total)")
+    
+    max_timestep = max(timesteps) if len(timesteps) > 0 else None
+    
+    baseline_values = {}
+    if max_timestep is not None:
+        for grad_type in gradient_types:
+            baseline_data = initial_df[
+                (initial_df['gradient_type'] == grad_type) & 
+                (initial_df['timestep'] == max_timestep)
+            ]
+            if len(baseline_data) > 0:
+                baseline_values[grad_type] = {
+                    'mae': baseline_data['mean_mae'].iloc[0],
+                    'spearman': baseline_data['mean_spearman'].iloc[0],
+                    'timestep': max_timestep
+                }
+                print(f"Baseline for {grad_type} from timestep {max_timestep}: MAE={baseline_values[grad_type]['mae']:.4f}, Spearman={baseline_values[grad_type]['spearman']:.4f}")
+    
+    colors = {
+        'Vertical': px.colors.qualitative.Plotly[0],
+        'Horizontal': px.colors.qualitative.Plotly[1],
+        'Gaussian': px.colors.qualitative.Plotly[2]
+    }
+    
+    fig = make_subplots(
+        rows=1, cols=2,
+        horizontal_spacing=0.12
+    )
+    
+    for grad_type in gradient_types:
+        grad_data = df[df['gradient_type'] == grad_type].copy()
+        
+        grad_data = grad_data.sort_values('timestep', ascending=False)
+        
+        timesteps_grad = grad_data['timestep'].values
+        mae_values = grad_data['mean_mae'].values
+        spearman_values = grad_data['mean_spearman'].values
+        mae_std = grad_data['std_mae'].values
+        spearman_var = grad_data['var_spearman'].values
+        spearman_std = np.sqrt(spearman_var)
+        
+        color = colors.get(grad_type, '#808080')
+        
+        fig.add_trace(
+            go.Scatter(
+                x=timesteps_grad,
+                y=mae_values,
+                mode='lines+markers',
+                name=grad_type,
+                line=dict(color=color, width=2.5),
+                marker=dict(size=5, color=color),
+                showlegend=True,
+                legendgroup=grad_type,
+                hovertemplate=f'<b>{grad_type}</b><br>Timestep: %{{x}}<br>MAE: %{{y:.4f}}<extra></extra>'
+            ),
+            row=1, col=1
+        )
+        
+        fig.add_trace(
+            go.Scatter(
+                x=timesteps_grad,
+                y=spearman_values,
+                mode='lines+markers',
+                name=grad_type,
+                line=dict(color=color, width=2.5),
+                marker=dict(size=5, color=color),
+                showlegend=False,
+                legendgroup=grad_type,
+                hovertemplate=f'<b>{grad_type}</b><br>Timestep: %{{x}}<br>Spearman: %{{y:.4f}}<extra></extra>'
+            ),
+            row=1, col=2
+        )
+    
+    for grad_type in gradient_types:
+        if grad_type in baseline_values:
+            color = colors.get(grad_type, '#808080')
+            baseline_mae = baseline_values[grad_type]['mae']
+            baseline_spearman = baseline_values[grad_type]['spearman']
+            
+            fig.add_trace(
+                go.Scatter(
+                    x=[1050, -50],
+                    y=[baseline_mae, baseline_mae],
+                    mode='lines',
+                    name=f'{grad_type} baseline',
+                    line=dict(color=color, width=2.5, dash='dash'),
+                    opacity=0.8,
+                    showlegend=False,
+                    hoverinfo='skip'
+                ),
+                row=1, col=1
+            )
+            
+            fig.add_trace(
+                go.Scatter(
+                    x=[1050, -50],
+                    y=[baseline_spearman, baseline_spearman],
+                    mode='lines',
+                    name=f'{grad_type} baseline',
+                    line=dict(color=color, width=2.5, dash='dash'),
+                    opacity=0.8,
+                    showlegend=False,
+                    hoverinfo='skip'
+                ),
+                row=1, col=2
+            )
+    
+    mae_all_values = []
+    spearman_all_values = []
+    
+    for grad_type in gradient_types:
+        grad_data = df[df['gradient_type'] == grad_type].copy()
+        mae_all_values.extend(grad_data['mean_mae'].values.tolist())
+        spearman_all_values.extend(grad_data['mean_spearman'].values.tolist())
+        if grad_type in baseline_values:
+            mae_all_values.append(baseline_values[grad_type]['mae'])
+            spearman_all_values.append(baseline_values[grad_type]['spearman'])
+    
+    mae_min = min(mae_all_values) if mae_all_values else 0
+    mae_max = max(mae_all_values) if mae_all_values else 1
+    mae_range = mae_max - mae_min
+    mae_padding = mae_range * 0.08
+    
+    spearman_min = min(spearman_all_values) if spearman_all_values else 0
+    spearman_max = max(spearman_all_values) if spearman_all_values else 1
+    spearman_range = spearman_max - spearman_min
+    spearman_padding = spearman_range * 0.08
+    
+    fig.update_xaxes(
+        title_text='Timestep',
+        range=[1050, -50],
+        row=1, col=1
+    )
+    fig.update_xaxes(
+        title_text='Timestep',
+        range=[1050, -50],
+        row=1, col=2
+    )
+    
+    fig.update_yaxes(
+        title_text='MAE',
+        range=[mae_min - mae_padding, mae_max + mae_padding],
+        row=1, col=1
+    )
+    fig.update_yaxes(
+        title_text='Spearman Correlation',
+        range=[spearman_min - spearman_padding, spearman_max + spearman_padding],
+        row=1, col=2
+    )
+    
+    light_blue = '#e6f3ff'
+    
+    fig.update_layout(
+        height=400,
+        width=800,
+        showlegend=True,
+        legend=dict(
+            orientation='h',
+            yanchor='top',
+            y=-0.15,
+            xanchor='center',
+            x=0.5,
+            font=dict(size=11, family="Times New Roman"),
+            traceorder='normal'
+        ),
+        hovermode='x unified',
+        plot_bgcolor=light_blue,
+        paper_bgcolor='white',
+        margin=dict(l=50, r=30, t=20, b=70),
+        font=dict(size=11, family="Times New Roman"),
+        autosize=False
+    )
+    
+    fig.update_xaxes(
+        gridcolor='white',
+        zeroline=False,
+        showgrid=True,
+        gridwidth=1,
+        title_font=dict(size=12, family="Times New Roman"),
+        tickfont=dict(size=10, family="Times New Roman")
+    )
+    fig.update_yaxes(
+        gridcolor='white',
+        zeroline=False,
+        showgrid=True,
+        gridwidth=1,
+        title_font=dict(size=12, family="Times New Roman"),
+        tickfont=dict(size=10, family="Times New Roman")
+    )
+    
+    kernel_str = f"_kernel{kernel_size}" if kernel_size is not None else ""
+    suffix_str = f"_{filename_suffix}" if filename_suffix else ""
+    
+    filename = f"final_representation_mae_spearman{kernel_str}{suffix_str}.png"
+    filepath = Path(output_dir) / filename
+    fig.write_image(str(filepath), width=800, height=400)
+    print(f"Saved: {filepath}")
+    
+    filename_pdf = f"final_representation_mae_spearman{kernel_str}{suffix_str}.pdf"
+    filepath_pdf = Path(output_dir) / filename_pdf
+    fig.write_image(str(filepath_pdf), width=800, height=400)
+    print(f"Saved: {filepath_pdf}")
+
+def main():
+    parser = argparse.ArgumentParser(description="Create figures for probing results")
+    parser.add_argument("--results_dir", type=str, default="probing/results_csvs",
+                       help="Directory containing CSV result files")
+    parser.add_argument("--output_dir", type=str, default="probing/figures",
+                       help="Directory to save output figures")
+    parser.add_argument("--pattern", type=str, default=None,
+                       help="String pattern to search for in CSV filenames (e.g., 'k1', 'sana')")
+    parser.add_argument("--kernel_size", type=int, default=None,
+                       help="Filter by kernel size (optional)")
+    parser.add_argument("--suffix", type=str, default="",
+                       help="Optional suffix to add to output filename")
+    
+    args = parser.parse_args()
+    
+    print("=" * 60)
+    print("CREATING PROBING RESULTS FIGURES")
+    print("=" * 60)
+    print(f"Results directory: {args.results_dir}")
+    print(f"Output directory: {args.output_dir}")
+    print(f"Filename pattern: {args.pattern}")
+    print(f"Kernel size filter: {args.kernel_size}")
+    
+    print("\n1. Loading final representation data...")
+    df, initial_df = load_final_representation_data(args.results_dir, args.pattern)
+    
+    if len(df) == 0:
+        print("No final representation data found!")
+        return
+    
+    kernel_sizes = sorted(df['kernel_size'].unique())
+    print(f"Available kernel sizes: {kernel_sizes}")
+    
+    print("\n2. Creating final representation figure...")
+    if args.kernel_size is not None:
+        plot_final_representation_mae_spearman(df, initial_df, args.output_dir, 
+                                              kernel_size=args.kernel_size,
+                                              filename_suffix=args.suffix)
+    else:
+        for k in kernel_sizes:
+            print(f"\n  Creating figure for kernel_size={k}...")
+            plot_final_representation_mae_spearman(df, initial_df, args.output_dir, 
+                                                  kernel_size=k,
+                                                  filename_suffix=args.suffix)
+    
+    print("\n" + "=" * 60)
+    print("FIGURES CREATED!")
+    print(f"All figures saved to: {args.output_dir}/")
+    print("=" * 60)
+
+if __name__ == "__main__":
+    main()

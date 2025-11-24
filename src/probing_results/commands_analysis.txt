@@ -1,17 +1,23 @@
 # Analyze kernel size 1 results
 python src/probing_results/analyze_time_and_layers.py \
-    --pattern _k1_ \
+    --pattern _ln_conv_zeros_ \
     --results_dir probing/results_csvs \
     --output_dir probing/analysis_figures
 
-# Analyze kernel size 3 results
-python src/probing_results/analyze_time_and_layers.py \
-    --pattern k3 \
+# Detect loss problems
+python src/probing_results/detect_loss_problems.py \
+    --pattern sana \
     --results_dir probing/results_csvs \
-    --output_dir probing/analysis_figures
+    --output_csv probing/loss_problems_sana.csv \
+    --variance_threshold 0.01 \
+    --spike_threshold 0.1 \
+    --plot_graphs \
+    --plot_dir probing/loss_graphs \
+    --num_plot_samples 10 
 
-# With conda environment
-conda activate sana && python src/probing_results/analyze_time_and_layers.py \
-    --pattern k1 \
+# Create final representation figure for sana pattern, kernel size 1
+python src/probing_results/create_figures.py \
     --results_dir probing/results_csvs \
-    --output_dir probing/analysis_figures
+    --output_dir probing/figures \
+    --pattern sana \
+    --kernel_size 1

@@ -6,3 +6,5 @@ post_layer_norm_latents.tar.gz
 ablation_results/sample_images/*
 mmdetection/
 *.lock
+probing/images_ln_conv_zeros/*
+probing/images_ln_conv_sana/*
