@@ -395,210 +395,6 @@ def load_layer_data(results_dir="probing/results_csvs", filename_pattern=None):
     
     return layer_data, initial_data
 
-def plot_layer_aggregation(df, initial_df, output_dir="probing/figures", kernel_size=None, layer_step=1, start_layer_index=0, filename_suffix="", smooth=False):
-    Path(output_dir).mkdir(parents=True, exist_ok=True)
-    
-    if kernel_size is not None:
-        df = df[df['kernel_size'] == kernel_size].copy()
-        initial_df = initial_df[initial_df['kernel_size'] == kernel_size].copy()
-        print(f"Filtered to kernel_size={kernel_size}: {len(df)} rows")
-    
-    if len(df) == 0:
-        print("No data to plot after filtering!")
-        return
-    
-    df['layer_num'] = df['position']
-    
-    gradient_types = sorted(df['gradient_type'].unique())
-    timesteps = sorted(df['timestep'].unique(), reverse=True)
-    all_layers = sorted(df['layer_num'].unique())
-    
-    layers = [all_layers[i] for i in range(len(all_layers)) if i >= start_layer_index and (i - start_layer_index) % layer_step == 0]
-    
-    print(f"Gradient types: {gradient_types}")
-    print(f"Timesteps: {timesteps[:5]}...{timesteps[-2:]} ({len(timesteps)} total)")
-    print(f"All layers: {all_layers} ({len(all_layers)} total)")
-    print(f"Starting at index {start_layer_index}, showing every {layer_step} layer(s): {layers} ({len(layers)} layers)")
-    
-    max_timestep = max(timesteps) if len(timesteps) > 0 else None
-    
-    baseline_values = {}
-    if max_timestep is not None:
-        for grad_type in gradient_types:
-            baseline_data = initial_df[
-                (initial_df['gradient_type'] == grad_type) & 
-                (initial_df['timestep'] == max_timestep)
-            ]
-            if len(baseline_data) > 0:
-                baseline_values[grad_type] = {
-                    'mae': baseline_data['mean_mae'].iloc[0],
-                    'spearman': baseline_data['mean_spearman'].iloc[0],
-                    'timestep': max_timestep
-                }
-                print(f"Baseline for {grad_type} from timestep {max_timestep}: MAE={baseline_values[grad_type]['mae']:.4f}, Spearman={baseline_values[grad_type]['spearman']:.4f}")
-    
-    colors = px.colors.qualitative.Plotly[:len(layers)]
-    if len(layers) > len(colors):
-        colors = px.colors.sample_colorscale("Viridis", [i/(len(layers)-1) for i in range(len(layers))])
-    
-    subplot_titles = []
-    for grad_type in gradient_types:
-        subplot_titles.append(f"<b>{grad_type} - MAE</b>")
-        subplot_titles.append(f"<b>{grad_type} - Spearman</b>")
-    
-    fig = make_subplots(
-        rows=3, cols=2,
-        subplot_titles=subplot_titles,
-        vertical_spacing=0.10,
-        horizontal_spacing=0.12
-    )
-    
-    for grad_idx, grad_type in enumerate(gradient_types):
-        grad_data = df[df['gradient_type'] == grad_type].copy()
-        
-        row = grad_idx + 1
-        
-        for layer_idx, layer in enumerate(layers):
-            layer_data = grad_data[grad_data['layer_num'] == layer].copy()
-            
-            if len(layer_data) == 0:
-                continue
-            
-            layer_data = layer_data.sort_values('timestep', ascending=False)
-            
-            timesteps_layer = layer_data['timestep'].values
-            mae_values = layer_data['mean_mae'].values
-            spearman_values = layer_data['mean_spearman'].values
-            
-            if smooth:
-                smooth_window = 3
-                if len(mae_values) >= smooth_window:
-                    mae_values_plot = pd.Series(mae_values).rolling(window=smooth_window, center=True, min_periods=1).mean().values
-                    spearman_values_plot = pd.Series(spearman_values).rolling(window=smooth_window, center=True, min_periods=1).mean().values
-                else:
-                    mae_values_plot = mae_values
-                    spearman_values_plot = spearman_values
-                line_shape = 'spline'
-            else:
-                mae_values_plot = mae_values
-                spearman_values_plot = spearman_values
-                line_shape = 'linear'
-            
-            color = colors[layer_idx % len(colors)]
-            layer_label = f"Layer {layer}"
-            
-            show_legend = (grad_idx == 0)
-            
-            fig.add_trace(
-                go.Scatter(
-                    x=timesteps_layer,
-                    y=mae_values_plot,
-                    mode='lines',
-                    name=layer_label,
-                    line=dict(color=color, width=1.5, shape=line_shape),
-                    showlegend=show_legend,
-                    legendgroup=f'layer_{layer}',
-                    hovertemplate=f'<b>{layer_label}</b><br>Timestep: %{{x}}<br>MAE: %{{y:.4f}}<extra></extra>'
-                ),
-                row=row, col=1
-            )
-            
-            fig.add_trace(
-                go.Scatter(
-                    x=timesteps_layer,
-                    y=spearman_values_plot,
-                    mode='lines',
-                    name=layer_label,
-                    line=dict(color=color, width=1.5, shape=line_shape),
-                    showlegend=False,
-                    legendgroup=f'layer_{layer}',
-                    hovertemplate=f'<b>{layer_label}</b><br>Timestep: %{{x}}<br>Spearman: %{{y:.4f}}<extra></extra>'
-                ),
-                row=row, col=2
-            )
-    
-    baseline_color_map = {
-        'Vertical': px.colors.qualitative.Plotly[0],
-        'Horizontal': px.colors.qualitative.Plotly[1],
-        'Gaussian': px.colors.qualitative.Plotly[2]
-    }
-    
-    for grad_idx, grad_type in enumerate(gradient_types):
-        if grad_type in baseline_values:
-            row = grad_idx + 1
-            color = baseline_color_map.get(grad_type, '#808080')
-            baseline_mae = baseline_values[grad_type]['mae']
-            baseline_spearman = baseline_values[grad_type]['spearman']
-            
-            fig.add_trace(
-                go.Scatter(
-                    x=[1050, -50],
-                    y=[baseline_mae, baseline_mae],
-                    mode='lines',
-                    name=f'{grad_type} baseline',
-                    line=dict(color=color, width=2.5, dash='dash'),
-                    opacity=0.8,
-                    showlegend=False,
-                    hoverinfo='skip'
-                ),
-                row=row, col=1
-            )
-            
-            fig.add_trace(
-                go.Scatter(
-                    x=[1050, -50],
-                    y=[baseline_spearman, baseline_spearman],
-                    mode='lines',
-                    name=f'{grad_type} baseline',
-                    line=dict(color=color, width=2.5, dash='dash'),
-                    opacity=0.8,
-                    showlegend=False,
-                    hoverinfo='skip'
-                ),
-                row=row, col=2
-            )
-    
-    for row_idx in range(1, 4):
-        fig.update_xaxes(title_text='Timestep', range=[1050, -50], row=row_idx, col=1)
-        fig.update_xaxes(title_text='Timestep', range=[1050, -50], row=row_idx, col=2)
-        fig.update_yaxes(title_text='MAE', row=row_idx, col=1)
-        fig.update_yaxes(title_text='Spearman Correlation', row=row_idx, col=2)
-    
-    fig.update_layout(
-        height=1200,
-        width=1000,
-        plot_bgcolor='#e6f3ff',
-        paper_bgcolor='white',
-        font=dict(size=11, family="Times New Roman"),
-        showlegend=True,
-        legend=dict(
-            orientation='h',
-            yanchor='bottom',
-            y=-0.12,
-            xanchor='center',
-            x=0.5,
-            font=dict(size=9)
-        ),
-        margin=dict(l=60, r=40, t=60, b=140)
-    )
-    
-    for annotation in fig['layout']['annotations']:
-        annotation['font'] = dict(size=11, family="Times New Roman")
-    
-    kernel_str = f"_kernel{kernel_size}" if kernel_size is not None else ""
-    step_str = f"_step{layer_step}" if layer_step > 1 else ""
-    suffix_str = f"_{filename_suffix}" if filename_suffix else ""
-    
-    filename_png = f"layer_performance{kernel_str}{step_str}{suffix_str}.png"
-    filepath = Path(output_dir) / filename_png
-    fig.write_image(str(filepath), width=1000, height=1200)
-    print(f"Saved: {filepath}")
-    
-    filename_pdf = f"layer_performance{kernel_str}{step_str}{suffix_str}.pdf"
-    filepath_pdf = Path(output_dir) / filename_pdf
-    fig.write_image(str(filepath_pdf), width=1000, height=1200)
-    print(f"Saved: {filepath_pdf}")
-
 def plot_timestep_across_layers(df, initial_df, output_dir="probing/figures", kernel_size=None, timestep_step=1, start_timestep_index=0, filename_suffix="", smooth=False):
     Path(output_dir).mkdir(parents=True, exist_ok=True)
     
@@ -684,7 +480,7 @@ def plot_timestep_across_layers(df, initial_df, output_dir="probing/figures", ke
                 else:
                     mae_values_plot = mae_values
                     spearman_values_plot = spearman_values
-                line_shape = 'spline'
+                line_shape = 'linear'
             else:
                 mae_values_plot = mae_values
                 spearman_values_plot = spearman_values
@@ -822,18 +618,14 @@ def main():
                        help="Optional suffix to add to output filename")
     parser.add_argument("--include_initial_curves", action="store_true",
                        help="Include initial representation curves alongside final (instead of just baseline)")
-    parser.add_argument("--mode", type=str, choices=['final', 'layers', 'timesteps', 'all'], default='final',
-                       help="Which figure to create: 'final' (final representation), 'layers' (layer performance over time), 'timesteps' (timestep performance across layers), or 'all'")
-    parser.add_argument("--layer_step", type=int, default=1,
-                       help="Show every Xth layer (e.g., 2 shows layers 0,2,4,6...; 1 shows all layers)")
-    parser.add_argument("--start_layer_index", type=int, default=0,
-                       help="Starting index for layer selection (e.g., 2 with step=3 shows layers at indices 2,5,8...)")
+    parser.add_argument("--mode", type=str, choices=['final', 'timesteps'], default='final',
+                       help="Which figure to create: 'final' (final representation) or 'timesteps' (timestep performance across layers)")
     parser.add_argument("--timestep_step", type=int, default=1,
                        help="Show every Xth timestep by index (e.g., 5 shows indices 0,5,10,15... from big to small; 1 shows all)")
     parser.add_argument("--start_timestep_index", type=int, default=0,
                        help="Starting index for timestep selection (e.g., 2 with step=3 shows timesteps at indices 2,5,8...)")
     parser.add_argument("--smooth", action="store_true",
-                       help="Apply smoothing to curves (rolling average + spline interpolation)")
+                       help="Apply smoothing to curves (3-point centered rolling average)")
     
     args = parser.parse_args()
     
@@ -846,7 +638,7 @@ def main():
     print(f"Kernel size filter: {args.kernel_size}")
     print(f"Mode: {args.mode}")
     
-    if args.mode in ['final', 'all']:
+    if args.mode == 'final':
         print("\n1. Loading final representation data...")
         df, initial_df = load_final_representation_data(args.results_dir, args.pattern)
         
@@ -870,36 +662,8 @@ def main():
                                                           filename_suffix=args.suffix,
                                                           include_initial_curves=args.include_initial_curves)
     
-    if args.mode in ['layers', 'all']:
-        print("\n3. Loading layer data...")
-        layer_df, layer_initial_df = load_layer_data(args.results_dir, args.pattern)
-        
-        if len(layer_df) == 0:
-            print("No layer data found!")
-        else:
-            kernel_sizes = sorted(layer_df['kernel_size'].unique())
-            print(f"Available kernel sizes: {kernel_sizes}")
-            
-            print("\n4. Creating layer performance figure...")
-            if args.kernel_size is not None:
-                plot_layer_aggregation(layer_df, layer_initial_df, args.output_dir,
-                                      kernel_size=args.kernel_size,
-                                      layer_step=args.layer_step,
-                                      start_layer_index=args.start_layer_index,
-                                      filename_suffix=args.suffix,
-                                      smooth=args.smooth)
-            else:
-                for k in kernel_sizes:
-                    print(f"\n  Creating figure for kernel_size={k}...")
-                    plot_layer_aggregation(layer_df, layer_initial_df, args.output_dir,
-                                          kernel_size=k,
-                                          layer_step=args.layer_step,
-                                          start_layer_index=args.start_layer_index,
-                                          filename_suffix=args.suffix,
-                                          smooth=args.smooth)
-    
-    if args.mode in ['timesteps', 'all']:
-        print("\n5. Loading layer data for timestep analysis...")
+    if args.mode == 'timesteps':
+        print("\n3. Loading layer data for timestep analysis...")
         timestep_df, timestep_initial_df = load_layer_data(args.results_dir, args.pattern)
         
         if len(timestep_df) == 0:
@@ -908,7 +672,7 @@ def main():
             kernel_sizes = sorted(timestep_df['kernel_size'].unique())
             print(f"Available kernel sizes: {kernel_sizes}")
             
-            print("\n6. Creating timestep across layers figure...")
+            print("\n4. Creating timestep across layers figure...")
             if args.kernel_size is not None:
                 plot_timestep_across_layers(timestep_df, timestep_initial_df, args.output_dir,
                                            kernel_size=args.kernel_size,
