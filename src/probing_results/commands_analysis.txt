@@ -15,9 +15,17 @@ python src/probing_results/detect_loss_problems.py \
     --plot_dir probing/loss_graphs \
     --num_plot_samples 10 
 
-# Create final representation figure for sana pattern, kernel size 1
+# Create final representation figure for sana pattern, kernel size 1 (with baseline lines)
 python src/probing_results/create_figures.py \
     --results_dir probing/results_csvs \
     --output_dir probing/figures \
     --pattern sana \
     --kernel_size 1
+
+# Create final representation figure WITH initial curves (option 2)
+python src/probing_results/create_figures.py \
+    --results_dir probing/results_csvs \
+    --output_dir probing/figures \
+    --pattern sana \
+    --kernel_size 1 \
+    --include_initial_curves

@@ -42,7 +42,7 @@ def load_final_representation_data(results_dir="probing/results_csvs", filename_
     
     return final_data, initial_data
 
-def plot_final_representation_mae_spearman(df, initial_df, output_dir="probing/figures", kernel_size=None, filename_suffix=""):
+def plot_final_representation_mae_spearman(df, initial_df, output_dir="probing/figures", kernel_size=None, filename_suffix="", include_initial_curves=False):
     Path(output_dir).mkdir(parents=True, exist_ok=True)
     
     if kernel_size is not None:
@@ -102,6 +102,8 @@ def plot_final_representation_mae_spearman(df, initial_df, output_dir="probing/f
         
         color = colors.get(grad_type, '#808080')
         
+        hover_label = f'{grad_type} (final)' if include_initial_curves else grad_type
+        
         fig.add_trace(
             go.Scatter(
                 x=timesteps_grad,
@@ -110,9 +112,9 @@ def plot_final_representation_mae_spearman(df, initial_df, output_dir="probing/f
                 name=grad_type,
                 line=dict(color=color, width=2.5),
                 marker=dict(size=5, color=color),
-                showlegend=True,
+                showlegend=False,
                 legendgroup=grad_type,
-                hovertemplate=f'<b>{grad_type}</b><br>Timestep: %{{x}}<br>MAE: %{{y:.4f}}<extra></extra>'
+                hovertemplate=f'<b>{hover_label}</b><br>Timestep: %{{x}}<br>MAE: %{{y:.4f}}<extra></extra>'
             ),
             row=1, col=1
         )
@@ -127,44 +129,138 @@ def plot_final_representation_mae_spearman(df, initial_df, output_dir="probing/f
                 marker=dict(size=5, color=color),
                 showlegend=False,
                 legendgroup=grad_type,
-                hovertemplate=f'<b>{grad_type}</b><br>Timestep: %{{x}}<br>Spearman: %{{y:.4f}}<extra></extra>'
+                hovertemplate=f'<b>{hover_label}</b><br>Timestep: %{{x}}<br>Spearman: %{{y:.4f}}<extra></extra>'
             ),
             row=1, col=2
         )
     
-    for grad_type in gradient_types:
-        if grad_type in baseline_values:
+    if include_initial_curves:
+        for grad_type in gradient_types:
+            initial_grad_data = initial_df[initial_df['gradient_type'] == grad_type].copy()
+            
+            if len(initial_grad_data) == 0:
+                continue
+            
+            initial_grad_data = initial_grad_data.sort_values('timestep', ascending=False)
+            
+            timesteps_initial = initial_grad_data['timestep'].values
+            mae_values_initial = initial_grad_data['mean_mae'].values
+            spearman_values_initial = initial_grad_data['mean_spearman'].values
+            
             color = colors.get(grad_type, '#808080')
-            baseline_mae = baseline_values[grad_type]['mae']
-            baseline_spearman = baseline_values[grad_type]['spearman']
             
             fig.add_trace(
                 go.Scatter(
-                    x=[1050, -50],
-                    y=[baseline_mae, baseline_mae],
-                    mode='lines',
-                    name=f'{grad_type} baseline',
-                    line=dict(color=color, width=2.5, dash='dash'),
-                    opacity=0.8,
+                    x=timesteps_initial,
+                    y=mae_values_initial,
+                    mode='lines+markers',
+                    name=f'{grad_type} (initial)',
+                    line=dict(color=color, width=2.5, dash='dot'),
+                    marker=dict(size=4, color=color, symbol='diamond'),
                     showlegend=False,
-                    hoverinfo='skip'
+                    legendgroup=f'{grad_type}_initial',
+                    hovertemplate=f'<b>{grad_type} (initial)</b><br>Timestep: %{{x}}<br>MAE: %{{y:.4f}}<extra></extra>'
                 ),
                 row=1, col=1
             )
             
             fig.add_trace(
                 go.Scatter(
-                    x=[1050, -50],
-                    y=[baseline_spearman, baseline_spearman],
-                    mode='lines',
-                    name=f'{grad_type} baseline',
-                    line=dict(color=color, width=2.5, dash='dash'),
-                    opacity=0.8,
+                    x=timesteps_initial,
+                    y=spearman_values_initial,
+                    mode='lines+markers',
+                    name=f'{grad_type} (initial)',
+                    line=dict(color=color, width=2.5, dash='dot'),
+                    marker=dict(size=4, color=color, symbol='diamond'),
                     showlegend=False,
-                    hoverinfo='skip'
+                    legendgroup=f'{grad_type}_initial',
+                    hovertemplate=f'<b>{grad_type} (initial)</b><br>Timestep: %{{x}}<br>Spearman: %{{y:.4f}}<extra></extra>'
                 ),
                 row=1, col=2
             )
+    
+    if not include_initial_curves:
+        for grad_type in gradient_types:
+            if grad_type in baseline_values:
+                color = colors.get(grad_type, '#808080')
+                baseline_mae = baseline_values[grad_type]['mae']
+                baseline_spearman = baseline_values[grad_type]['spearman']
+                
+                fig.add_trace(
+                    go.Scatter(
+                        x=[1050, -50],
+                        y=[baseline_mae, baseline_mae],
+                        mode='lines',
+                        name=f'{grad_type} baseline',
+                        line=dict(color=color, width=2.5, dash='dash'),
+                        opacity=0.8,
+                        showlegend=False,
+                        hoverinfo='skip'
+                    ),
+                    row=1, col=1
+                )
+                
+                fig.add_trace(
+                    go.Scatter(
+                        x=[1050, -50],
+                        y=[baseline_spearman, baseline_spearman],
+                        mode='lines',
+                        name=f'{grad_type} baseline',
+                        line=dict(color=color, width=2.5, dash='dash'),
+                        opacity=0.8,
+                        showlegend=False,
+                        hoverinfo='skip'
+                    ),
+                    row=1, col=2
+                )
+    
+    for grad_type in gradient_types:
+        color = colors.get(grad_type, '#808080')
+        fig.add_trace(
+            go.Scatter(
+                x=[None],
+                y=[None],
+                mode='lines+markers',
+                name=grad_type,
+                line=dict(color=color, width=2.5),
+                marker=dict(size=5, color=color),
+                showlegend=True,
+                legendgroup=f'legend_{grad_type}',
+                hoverinfo='skip'
+            ),
+            row=1, col=1
+        )
+    
+    if include_initial_curves:
+        fig.add_trace(
+            go.Scatter(
+                x=[None],
+                y=[None],
+                mode='lines+markers',
+                name='Final',
+                line=dict(color='gray', width=2.5),
+                marker=dict(size=5, color='gray'),
+                showlegend=True,
+                legendgroup='legend_final',
+                hoverinfo='skip'
+            ),
+            row=1, col=1
+        )
+        
+        fig.add_trace(
+            go.Scatter(
+                x=[None],
+                y=[None],
+                mode='lines+markers',
+                name='Initial',
+                line=dict(color='gray', width=2.5, dash='dot'),
+                marker=dict(size=4, color='gray', symbol='diamond'),
+                showlegend=True,
+                legendgroup='legend_initial',
+                hoverinfo='skip'
+            ),
+            row=1, col=1
+        )
     
     mae_all_values = []
     spearman_all_values = []
@@ -173,7 +269,12 @@ def plot_final_representation_mae_spearman(df, initial_df, output_dir="probing/f
         grad_data = df[df['gradient_type'] == grad_type].copy()
         mae_all_values.extend(grad_data['mean_mae'].values.tolist())
         spearman_all_values.extend(grad_data['mean_spearman'].values.tolist())
-        if grad_type in baseline_values:
+        
+        if include_initial_curves:
+            initial_grad_data = initial_df[initial_df['gradient_type'] == grad_type].copy()
+            mae_all_values.extend(initial_grad_data['mean_mae'].values.tolist())
+            spearman_all_values.extend(initial_grad_data['mean_spearman'].values.tolist())
+        elif grad_type in baseline_values:
             mae_all_values.append(baseline_values[grad_type]['mae'])
             spearman_all_values.append(baseline_values[grad_type]['spearman'])
     
@@ -251,13 +352,14 @@ def plot_final_representation_mae_spearman(df, initial_df, output_dir="probing/f
     
     kernel_str = f"_kernel{kernel_size}" if kernel_size is not None else ""
     suffix_str = f"_{filename_suffix}" if filename_suffix else ""
+    representation_str = "final_initial_representation" if include_initial_curves else "final_representation"
     
-    filename = f"final_representation_mae_spearman{kernel_str}{suffix_str}.png"
+    filename = f"{representation_str}_mae_spearman{kernel_str}{suffix_str}.png"
     filepath = Path(output_dir) / filename
     fig.write_image(str(filepath), width=800, height=400)
     print(f"Saved: {filepath}")
     
-    filename_pdf = f"final_representation_mae_spearman{kernel_str}{suffix_str}.pdf"
+    filename_pdf = f"{representation_str}_mae_spearman{kernel_str}{suffix_str}.pdf"
     filepath_pdf = Path(output_dir) / filename_pdf
     fig.write_image(str(filepath_pdf), width=800, height=400)
     print(f"Saved: {filepath_pdf}")
@@ -274,6 +376,8 @@ def main():
                        help="Filter by kernel size (optional)")
     parser.add_argument("--suffix", type=str, default="",
                        help="Optional suffix to add to output filename")
+    parser.add_argument("--include_initial_curves", action="store_true",
+                       help="Include initial representation curves alongside final (instead of just baseline)")
     
     args = parser.parse_args()
     
@@ -299,13 +403,15 @@ def main():
     if args.kernel_size is not None:
         plot_final_representation_mae_spearman(df, initial_df, args.output_dir, 
                                               kernel_size=args.kernel_size,
-                                              filename_suffix=args.suffix)
+                                              filename_suffix=args.suffix,
+                                              include_initial_curves=args.include_initial_curves)
     else:
         for k in kernel_sizes:
             print(f"\n  Creating figure for kernel_size={k}...")
             plot_final_representation_mae_spearman(df, initial_df, args.output_dir, 
                                                   kernel_size=k,
-                                                  filename_suffix=args.suffix)
+                                                  filename_suffix=args.suffix,
+                                                  include_initial_curves=args.include_initial_curves)
     
     print("\n" + "=" * 60)
     print("FIGURES CREATED!")
