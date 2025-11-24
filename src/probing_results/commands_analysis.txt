@@ -29,3 +29,66 @@ python src/probing_results/create_figures.py \
     --pattern sana \
     --kernel_size 1 \
     --include_initial_curves
+
+
+# Create layer performance figure (show all layers, no smoothing)
+
+# Create layer performance figure (show every 2nd layer: 0,2,4,6...)
+python src/probing_results/create_figures.py \
+    --results_dir probing/results_csvs \
+    --output_dir probing/figures \
+    --pattern sana \
+    --kernel_size 1 \
+    --mode layers \
+    --layer_step 2
+
+# Create layer performance figure (start at index 1, show every 2nd layer: 1,3,5,7...)
+python src/probing_results/create_figures.py \
+    --results_dir probing/results_csvs \
+    --output_dir probing/figures \
+    --pattern sana \
+    --kernel_size 1 \
+    --mode layers \
+    --layer_step 2 \
+    --start_layer_index 1
+
+# Create layer performance figure WITH smoothing
+python src/probing_results/create_figures.py \
+    --results_dir probing/results_csvs \
+    --output_dir probing/figures \
+    --pattern sana \
+    --kernel_size 1 \
+    --mode layers \
+    --layer_step 2 \
+    --smooth
+
+# Create timestep across layers figure (show all timesteps)
+python src/probing_results/create_figures.py \
+    --results_dir probing/results_csvs \
+    --output_dir probing/figures \
+    --pattern sana \
+    --kernel_size 1 \
+    --mode timesteps \
+    --timestep_step 1
+
+# Create timestep across layers figure (show every 4th timestep by index: indices 0,4,8,12...)
+python src/probing_results/create_figures.py \
+    --results_dir probing/results_csvs \
+    --output_dir probing/figures \
+    --pattern sana \
+    --kernel_size 1 \
+    --mode timesteps \
+    --timestep_step 4 \
+    --smooth
+
+# Create timestep across layers figure (start at index 2, show every 3rd timestep: indices 2,5,8,11...)
+python src/probing_results/create_figures.py \
+    --results_dir probing/results_csvs \
+    --output_dir probing/figures \
+    --pattern sana \
+    --kernel_size 1 \
+    --mode timesteps \
+    --timestep_step 2 \
+    --start_timestep_index 1 \
+    --smooth
+
