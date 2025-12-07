@@ -1,0 +1,268 @@
+================================================================================
+                    DIFFUSION LOGIT LENS VISUALIZATION
+                          exp1_layer_norm.ipynb
+================================================================================
+
+OVERVIEW
+========
+This notebook implements a "logit lens" for diffusion transformers - visualizing 
+what the model "thinks" the image looks like at each intermediate layer during 
+the denoising process.
+
+Just like logit lens in language models projects intermediate hidden states to 
+vocabulary space to see what token the model "thinks" at each layer, this 
+projects intermediate diffusion representations to image space to see what 
+image the model "thinks" at each layer.
+
+
+HOW IT WORKS
+============
+
+1. MODEL SETUP
+--------------
+   - Loads Sana diffusion transformer
+   - Installs IDENTITY LAYERS after attention and FFN gating (like train_probes_online.py)
+   - These identity layers let us hook into the actual contributions to the 
+     residual stream (after gate_msa * attn_output and gate_mlp * ff_output)
+
+
+2. TIMESTEP TRACKING
+--------------------
+   Two types of timestep information are captured:
+   
+   a) Real timestep capture (transformer_forward_pre_hook):
+      - Hooks transformer forward to get actual scheduler timesteps
+      - Examples: 999, 750, 500, 250, 0...
+      - This is the "noise level" parameter in the diffusion process
+      - Captured from kwargs using with_kwargs=True
+   
+   b) Embedded timestep capture (time_embed_hook):
+      - Hooks time_embed to get the embedded timestep vectors
+      - These are needed for the logit lens transformation
+      - Used in norm_out to apply timestep-modulated normalization
+   
+   Also tracks:
+   - step_idx: Sequential diffusion step (0, 1, 2, 3, ...)
+
+
+3. THE LOGIT LENS TRANSFORMATION (apply_transform)
+---------------------------------------------------
+For intermediate activations at any layer:
+
+   Input:  hidden_states at intermediate layer (B, H*W, 2240)
+   
+   Step 1: Apply timestep-modulated normalization
+           hidden_states = pipe.transformer.norm_out(
+               hidden_states, 
+               embedded_timestep, 
+               scale_shift_table
+           )
+   
+   Step 2: Project to latent space
+           hidden_states = pipe.transformer.proj_out(hidden_states)  # 2240 → 32
+   
+   Output: (B, 32, H, W) ready for VAE decoding
+
+This applies the SAME final transformation the model would apply at the end,
+letting you see the "predicted image" at each layer.
+
+WHY THIS WORKS:
+- The model internally operates in 2240-dimensional space (inner_dim)
+- The final output is in 32-dimensional VAE latent space
+- By applying norm_out + proj_out to intermediate representations, we can
+  decode them to images and see what the model "sees" at that layer
+
+
+4. WHAT GETS VISUALIZED
+------------------------
+For each diffusion step and each transformer block, we capture:
+
+   - self_attn_after_gate: Output after self-attention contribution
+     (shows what the image looks like after spatial feature aggregation)
+   
+   - mix_ffn_after_gate: Output after FFN contribution
+     (shows what the image looks like after point-wise processing)
+
+These are the ACTUAL contributions added to the residual stream, captured
+via the identity layers installed in install_forward_with_identities.
+
+
+5. OUTPUT ORGANIZATION
+----------------------
+exp1_results/exp_logit_lens_identity/
+├── step_00_t999/              # Step index 0, real timestep 999 (most noisy)
+│   ├── block00_self_attn_after_gate.png
+│   ├── block00_mix_ffn_after_gate.png
+│   ├── block01_self_attn_after_gate.png
+│   ├── block01_mix_ffn_after_gate.png
+│   └── ... (20 blocks × 2 components)
+│
+├── step_01_t750/              # Step index 1, real timestep 750
+│   └── ... (same structure)
+│
+├── step_02_t500/              # Step index 2, real timestep 500
+│   └── ... (same structure)
+│
+└── final.png                  # Final generated image
+
+
+WHY THIS IS USEFUL
+==================
+
+1. UNDERSTAND LAYER-WISE REFINEMENT
+   - See how each layer progressively refines the image
+   - Early layers might establish rough structure
+   - Later layers refine details
+
+2. COMPONENT ATTRIBUTION
+   - Compare attention vs FFN contributions at each layer
+   - Understand what each component is "doing" to the image
+
+3. PER-PIXEL ANALYSIS
+   - Hidden states are (B, H*W, C) format
+   - Can analyze how different spatial positions evolve
+   - Useful for understanding compositional generation
+
+4. DEBUGGING
+   - Visualize where the model makes mistakes or changes predictions
+   - See if certain layers are not contributing meaningfully
+   - Understand failure modes
+
+
+KEY TECHNICAL DETAILS
+======================
+
+IDENTITY HOOKS
+--------------
+The install_forward_with_identities function modifies the transformer block
+forward pass to include identity layers:
+
+   Original:
+   hidden_states = hidden_states + gate_msa * attn_output
+   
+   Modified:
+   hidden_states = hidden_states + identity_after_attn(gate_msa * attn_output)
+   
+This allows hooking the actual gated contribution without affecting computation.
+
+
+TIMESTEP-MODULATED NORMALIZATION
+---------------------------------
+The norm_out applies AdaLayerNorm (adaptive layer normalization):
+
+   norm_out(hidden_states, embedded_timestep, scale_shift_table)
+   
+This modulates the normalization based on the current noise level, which is
+crucial for the logit lens to work correctly. Different timesteps require
+different normalization parameters.
+
+
+APPLY_FINAL_TRANSFORM FLAG
+---------------------------
+decode_and_save has an apply_final_transform parameter:
+
+   - True (default): Applies norm_out + proj_out (for intermediate layers)
+   - False: Skips transformation (for final transformer output which is 
+            already projected)
+
+
+FOLDER NAMING
+-------------
+Format: step_XX_tYYY
+
+   - XX: Sequential step index (00, 01, 02, ...)
+   - YYY: Real timestep value from scheduler (999, 750, 500, ...)
+   
+This dual naming makes it easy to:
+   - Follow the generation sequence (step_00 → step_01 → ...)
+   - Understand the noise level (t999 = very noisy, t0 = clean)
+
+
+RELATIONSHIP TO TRAIN_PROBES_ONLINE.PY
+=======================================
+
+This notebook borrows several techniques from train_probes_online.py:
+
+1. install_forward_with_identities: Same implementation for adding identity layers
+
+2. Timestep capture: Uses the same transformer_forward_pre_hook with 
+   with_kwargs=True to capture timestep from kwargs
+
+3. Hook registration style: Uses make_post_hook pattern for consistency
+
+The key difference: train_probes_online.py trains probes on these activations,
+while this notebook visualizes them directly as images.
+
+
+MATHEMATICAL PERSPECTIVE
+========================
+
+In diffusion models, the model learns to predict noise ε_θ(x_t, t) at each
+timestep t. The intermediate representations can be thought of as:
+
+   Layer 0:  Initial patch embeddings
+   Layer 1:  x₀¹ = f₁(x_patch, t)
+   Layer 2:  x₀² = f₂(x₀¹, t)
+   ...
+   Layer N:  x₀ᴺ = fₙ(x₀ᴺ⁻¹, t)
+
+Each x₀ⁱ is an "estimate" of the final denoised image. The logit lens
+makes these intermediate estimates visible by projecting them to image space.
+
+
+LIMITATIONS AND CONSIDERATIONS
+===============================
+
+1. The logit lens shows what the model "would predict" if generation stopped
+   at that layer, but the model is trained end-to-end, so intermediate 
+   representations may not be optimized for interpretability.
+
+2. With CFG (classifier-free guidance), there are two forward passes 
+   (conditional and unconditional). The code captures timesteps from the
+   first forward pass.
+
+3. VAE decoding introduces its own artifacts, so visual quality of 
+   intermediate predictions may not reflect the actual quality of the
+   internal representations.
+
+4. Storage: With 20 blocks × 2 components × num_steps, this generates
+   many images. Consider reducing num_steps for exploration.
+
+
+USAGE TIPS
+==========
+
+1. Start with few steps (num_steps = 5) to quickly see the pattern
+
+2. Compare early vs late timesteps:
+   - t=999: Model dealing with pure noise
+   - t=500: Model refining structure
+   - t=0: Model polishing details
+
+3. Look for:
+   - Which layers establish spatial layout
+   - Which layers refine textures
+   - Difference between attention (aggregation) and FFN (processing)
+
+4. For debugging, check if certain blocks show little change - might indicate
+   redundancy or training issues
+
+
+RELATED CONCEPTS
+================
+
+- Logit lens (LLMs): nostalgebraist's technique for language models
+- Activation patching: Causal tracing in neural networks  
+- Feature visualization: Making neural network internals visible
+- Mechanistic interpretability: Understanding how models work internally
+
+
+REFERENCES
+==========
+
+- Sana paper: https://huggingface.co/papers/2410.10629
+- PixArt-Alpha (adaLN-single): https://huggingface.co/papers/2310.00426
+- DiT (adaLN-Zero): "Scalable Diffusion Models with Transformers" (ICCV 2023)
+
+================================================================================
+

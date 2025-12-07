@@ -1,169 +1,3 @@
-#real - BLOCK-BASED training (split by layer ranges, each job trains on 5 layers)
-
-# Layers 0-4 (Block Output)
-./py-sbatch.sh src/train_probes_online.py \
-    --n_train 1000 \
-    --n_eval 100 \
-    --num_epochs 20 \
-    --batch_size 16 \
-    --seed 42 \
-    --kernel_size 1 \
-    --gradient_types Vertical Horizontal Gaussian \
-    --timesteps all \
-    --layers 0 1 2 3 4 \
-    --train_on_block_output \
-    --hook_patch_embed \
-    --hook_proj_out \
-    --save_probes \
-    --save_images \
-    --probes_output_dir probing/probes \
-    --images_output_dir probing/images \
-    --output_csv probing/results_csvs/results_layers_0_4.csv
-
-# Layers 5-9 (Block Output)
-./py-sbatch.sh src/train_probes_online.py \
-    --n_train 1000 \
-    --n_eval 100 \
-    --num_epochs 20 \
-    --batch_size 16 \
-    --seed 42 \
-    --kernel_size 1 \
-    --gradient_types Vertical Horizontal Gaussian \
-    --timesteps all \
-    --layers 5 6 7 8 9 \
-    --train_on_block_output \
-    --save_probes \
-    --save_images \
-    --probes_output_dir probing/probes \
-    --images_output_dir probing/images \
-    --output_csv probing/results_csvs/results_layers_5_9.csv
-
-# Layers 10-14 (Block Output)
-./py-sbatch.sh src/train_probes_online.py \
-    --n_train 1000 \
-    --n_eval 100 \
-    --num_epochs 20 \
-    --batch_size 16 \
-    --seed 42 \
-    --kernel_size 1 \
-    --gradient_types Vertical Horizontal Gaussian \
-    --timesteps all \
-    --layers 10 11 12 13 14 \
-    --train_on_block_output \
-    --save_probes \
-    --save_images \
-    --probes_output_dir probing/probes \
-    --images_output_dir probing/images \
-    --output_csv probing/results_csvs/results_layers_10_14.csv
-
-# Layers 15-19 (Block Output)
-./py-sbatch.sh src/train_probes_online.py \
-    --n_train 1000 \
-    --n_eval 100 \
-    --num_epochs 20 \
-    --batch_size 16 \
-    --seed 42 \
-    --kernel_size 1 \
-    --gradient_types Vertical Horizontal Gaussian \
-    --timesteps all \
-    --layers 15 16 17 18 19 \
-    --train_on_block_output \
-    --save_probes \
-    --save_images \
-    --probes_output_dir probing/probes \
-    --images_output_dir probing/images \
-    --output_csv probing/results_csvs/results_layers_15_19.csv
-
-# ============================================================================
-# LN_CONV ARCHITECTURE - Zero Initialization (Identity)
-# ============================================================================
-
-# Layers 0-4 (ln_conv, zero init)
-./py-sbatch.sh src/train_probes_online.py \
-    --n_train 1000 \
-    --n_eval 100 \
-    --num_epochs 20 \
-    --batch_size 16 \
-    --seed 42 \
-    --learning_rate 5e-4 \
-    --kernel_size 1 \
-    --gradient_types Vertical Horizontal Gaussian \
-    --timesteps all \
-    --layers 0 1 2 3 4 \
-    --train_on_block_output \
-    --hook_patch_embed \
-    --hook_proj_out \
-    --probe_architecture ln_conv \
-    --ln_init_zeros \
-    --save_probes \
-    --save_images \
-    --probes_output_dir probing/probes_ln_conv_zeros \
-    --images_output_dir probing/images_ln_conv_zeros \
-    --output_csv probing/results_csvs/results_layers_0_4_ln_conv_zeros.csv
-
-# Layers 5-9 (ln_conv, zero init)
-./py-sbatch.sh src/train_probes_online.py \
-    --n_train 1000 \
-    --n_eval 100 \
-    --num_epochs 20 \
-    --batch_size 16 \
-    --seed 42 \
-    --learning_rate 5e-4 \
-    --kernel_size 1 \
-    --gradient_types Vertical Horizontal Gaussian \
-    --timesteps all \
-    --layers 5 6 7 8 9 \
-    --train_on_block_output \
-    --probe_architecture ln_conv \
-    --ln_init_zeros \
-    --save_probes \
-    --save_images \
-    --probes_output_dir probing/probes_ln_conv_zeros \
-    --images_output_dir probing/images_ln_conv_zeros \
-    --output_csv probing/results_csvs/results_layers_5_9_ln_conv_zeros.csv
-
-# Layers 10-14 (ln_conv, zero init)
-./py-sbatch.sh src/train_probes_online.py \
-    --n_train 1000 \
-    --n_eval 100 \
-    --num_epochs 20 \
-    --batch_size 16 \
-    --seed 42 \
-    --learning_rate 5e-4 \
-    --kernel_size 1 \
-    --gradient_types Vertical Horizontal Gaussian \
-    --timesteps all \
-    --layers 10 11 12 13 14 \
-    --train_on_block_output \
-    --probe_architecture ln_conv \
-    --ln_init_zeros \
-    --save_probes \
-    --save_images \
-    --probes_output_dir probing/probes_ln_conv_zeros \
-    --images_output_dir probing/images_ln_conv_zeros \
-    --output_csv probing/results_csvs/results_layers_10_14_ln_conv_zeros.csv
-
-# Layers 15-19 (ln_conv, zero init)
-./py-sbatch.sh src/train_probes_online.py \
-    --n_train 1000 \
-    --n_eval 100 \
-    --num_epochs 20 \
-    --batch_size 16 \
-    --seed 42 \
-    --learning_rate 5e-4 \
-    --kernel_size 1 \
-    --gradient_types Vertical Horizontal Gaussian \
-    --timesteps all \
-    --layers 15 16 17 18 19 \
-    --train_on_block_output \
-    --probe_architecture ln_conv \
-    --ln_init_zeros \
-    --save_probes \
-    --save_images \
-    --probes_output_dir probing/probes_ln_conv_zeros \
-    --images_output_dir probing/images_ln_conv_zeros \
-    --output_csv probing/results_csvs/results_layers_15_19_ln_conv_zeros.csv
-
 # ============================================================================
 # LN_CONV ARCHITECTURE - 1/√C Initialization (Sana-style)
 # ============================================================================
@@ -250,52 +84,376 @@
     --images_output_dir probing/images_ln_conv_sana \
     --output_csv probing/results_csvs/results_layers_15_19_ln_conv_sana.csv
 
+
 # ============================================================================
-# DEBUG/TEST COMMANDS - Quick sanity checks with small datasets
+# COMPONENT-BASED - LN_CONV ARCHITECTURE - 1/√C Initialization (Sana-style) - all use contribution mode
 # ============================================================================
 
-# Test 1: ln_conv with zero init (quick debug run)
 ./py-sbatch.sh src/train_probes_online.py \
-    --n_train 32 \
-    --n_eval 16 \
-    --num_epochs 2 \
+    --n_train 1000 \
+    --n_eval 100 \
+    --num_epochs 20 \
     --batch_size 16 \
     --seed 42 \
     --learning_rate 5e-4 \
     --kernel_size 1 \
-    --gradient_types Vertical Horizontal \
-    --timesteps 428 617 \
-    --layers 0 1 \
-    --train_on_block_output \
-    --hook_patch_embed \
-    --hook_proj_out \
+    --gradient_types Vertical Horizontal Gaussian \
+    --timesteps all \
+    --layers 0 1 2 \
+    --component_types self_attn cross_attn mix_ffn \
+    --use_contributions_mode \
     --probe_architecture ln_conv \
-    --ln_init_zeros \
     --save_probes \
     --save_images \
-    --probes_output_dir probing/probes_test_zeros \
-    --images_output_dir probing/images_test_zeros \
-    --output_csv probing/results_csvs/test_ln_conv_zeros.csv
+    --probes_output_dir probing/probes_ln_conv_sana \
+    --images_output_dir probing/images_ln_conv_sana \
+    --output_csv probing/results_csvs/results_layers_0_2_components_ln_conv_sana.csv
 
-# Test 2: ln_conv with Sana-style init (quick debug run)
 ./py-sbatch.sh src/train_probes_online.py \
-    --n_train 32 \
-    --n_eval 16 \
-    --num_epochs 2 \
+    --n_train 1000 \
+    --n_eval 100 \
+    --num_epochs 20 \
     --batch_size 16 \
     --seed 42 \
     --learning_rate 5e-4 \
     --kernel_size 1 \
-    --gradient_types Vertical Horizontal \
-    --timesteps 428 617 \
-    --layers 0 1 \
-    --train_on_block_output \
-    --hook_patch_embed \
-    --hook_proj_out \
+    --gradient_types Vertical Horizontal Gaussian \
+    --timesteps all \
+    --layers 3 4 5 \
+    --component_types self_attn cross_attn mix_ffn \
+    --use_contributions_mode \
     --probe_architecture ln_conv \
     --save_probes \
     --save_images \
-    --probes_output_dir probing/probes_test_sana \
-    --images_output_dir probing/images_test_sana \
-    --output_csv probing/results_csvs/test_ln_conv_sana.csv
+    --probes_output_dir probing/probes_ln_conv_sana \
+    --images_output_dir probing/images_ln_conv_sana \
+    --output_csv probing/results_csvs/results_layers_3_5_components_ln_conv_sana.csv
+
+./py-sbatch.sh src/train_probes_online.py \
+    --n_train 1000 \
+    --n_eval 100 \
+    --num_epochs 20 \
+    --batch_size 16 \
+    --seed 42 \
+    --learning_rate 5e-4 \
+    --kernel_size 1 \
+    --gradient_types Vertical Horizontal Gaussian \
+    --timesteps all \
+    --layers 6 7 8 \
+    --component_types self_attn cross_attn mix_ffn \
+    --use_contributions_mode \
+    --probe_architecture ln_conv \
+    --save_probes \
+    --save_images \
+    --probes_output_dir probing/probes_ln_conv_sana \
+    --images_output_dir probing/images_ln_conv_sana \
+    --output_csv probing/results_csvs/results_layers_6_8_components_ln_conv_sana.csv
+
+./py-sbatch.sh src/train_probes_online.py \
+    --n_train 1000 \
+    --n_eval 100 \
+    --num_epochs 20 \
+    --batch_size 16 \
+    --seed 42 \
+    --learning_rate 5e-4 \
+    --kernel_size 1 \
+    --gradient_types Vertical Horizontal Gaussian \
+    --timesteps all \
+    --layers 9 10 11 \
+    --component_types self_attn cross_attn mix_ffn \
+    --use_contributions_mode \
+    --probe_architecture ln_conv \
+    --save_probes \
+    --save_images \
+    --probes_output_dir probing/probes_ln_conv_sana \
+    --images_output_dir probing/images_ln_conv_sana \
+    --output_csv probing/results_csvs/results_layers_9_11_components_ln_conv_sana.csv
+
+./py-sbatch.sh src/train_probes_online.py \
+    --n_train 1000 \
+    --n_eval 100 \
+    --num_epochs 20 \
+    --batch_size 16 \
+    --seed 42 \
+    --learning_rate 5e-4 \
+    --kernel_size 1 \
+    --gradient_types Vertical Horizontal Gaussian \
+    --timesteps all \
+    --layers 12 13 14 \
+    --component_types self_attn cross_attn mix_ffn \
+    --use_contributions_mode \
+    --probe_architecture ln_conv \
+    --save_probes \
+    --save_images \
+    --probes_output_dir probing/probes_ln_conv_sana \
+    --images_output_dir probing/images_ln_conv_sana \
+    --output_csv probing/results_csvs/results_layers_12_14_components_ln_conv_sana.csv
+
+./py-sbatch.sh src/train_probes_online.py \
+    --n_train 1000 \
+    --n_eval 100 \
+    --num_epochs 20 \
+    --batch_size 16 \
+    --seed 42 \
+    --learning_rate 5e-4 \
+    --kernel_size 1 \
+    --gradient_types Vertical Horizontal Gaussian \
+    --timesteps all \
+    --layers 15 16 17 \
+    --component_types self_attn cross_attn mix_ffn \
+    --use_contributions_mode \
+    --probe_architecture ln_conv \
+    --save_probes \
+    --save_images \
+    --probes_output_dir probing/probes_ln_conv_sana \
+    --images_output_dir probing/images_ln_conv_sana \
+    --output_csv probing/results_csvs/results_layers_15_17_components_ln_conv_sana.csv
+
+./py-sbatch.sh src/train_probes_online.py \
+    --n_train 1000 \
+    --n_eval 100 \
+    --num_epochs 20 \
+    --batch_size 16 \
+    --seed 42 \
+    --learning_rate 5e-4 \
+    --kernel_size 1 \
+    --gradient_types Vertical Horizontal Gaussian \
+    --timesteps all \
+    --layers 18 19 \
+    --component_types self_attn cross_attn mix_ffn \
+    --use_contributions_mode \
+    --probe_architecture ln_conv \
+    --save_probes \
+    --save_images \
+    --probes_output_dir probing/probes_ln_conv_sana \
+    --images_output_dir probing/images_ln_conv_sana \
+    --output_csv probing/results_csvs/results_layers_18_19_components_ln_conv_sana.csv
+
+
+
+
+
+
+#figures
+
+python src/probing_results/create_component_comparison_figure.py \
+    --pattern "ln_conv_sana" \
+    --kernel_size 1 \
+    --single_timestep 999 \
+    --smooth
+
+python src/probing_results/create_component_comparison_figure.py \
+    --pattern "ln_conv_sana" \
+    --kernel_size 1 \
+    --single_timestep 136 \
+    --smooth
+
+python src/probing_results/create_component_comparison_figure.py \
+    --pattern "ln_conv_sana" \
+    --kernel_size 1 \
+    --single_timestep 749 \
+    --smooth
+
+# Dual y-axis mode with step 5 and include last timestep
+python src/probing_results/create_component_comparison_figure.py \
+    --pattern "ln_conv_sana" \
+    --kernel_size 1 \
+    --start_timestep_index 0 \
+    --timestep_step 5 \
+    --dual_y_axis \
+    --include_last_timestep \
+    --smooth
+
+
+python src/probing_results/create_figures.py \
+    --mode timesteps \
+    --kernel_size 1 \
+    --pattern "ln_conv_sana" \
+    --results_dir probing/results_csvs \
+    --output_dir probing/figures22 \
+    --smooth
+
+
+python src/probing_results/create_figures.py \
+    --mode final \
+    --kernel_size 1 \
+    --pattern "ln_conv_sana" \
+    --results_dir probing/results_csvs \
+    --output_dir probing/figures22
+
+
+
+python src/probing_results/create_timestep_image_grid.py \
+    --example_i 0 \
+    --kernel_size 1 \
+    --grad_type Gaussian \
+    --timestep_step 5 \
+    --include_last_timestep \
+    --output_path probing/figures/timestep_grid_example_0_kernel_1_grad_Gaussian.png
+
+
+
+# All gradient types (one row per type)
+python src/probing_results/create_timestep_image_grid.py \
+    --example_i 2 \
+    --kernel_size 1 \
+    --all_gradient_types \
+    --timestep_step 5 \
+    --include_last_timestep \
+    --output_path probing/figures/timestep_grid_example_0_kernel_1_grad_all.png
+
+
+# ============================================================================
+# LAYER IMAGE GRIDS - Fixed timestep, showing layers across columns
+# ============================================================================
+
+# All gradient types, all layers (timestep 999)
+python src/probing_results/create_layer_image_grid.py \
+    --example_i 2 \
+    --kernel_size 1 \
+    --timestep 999 \
+    --all_gradient_types \
+    --output_path probing/figures/layer_grid_timestep_999_example_2_kernel_1_all_grads_all_layers.png
+
+# All gradient types, sampled layers with step 2 (timestep 999)
+python src/probing_results/create_layer_image_grid.py \
+    --example_i 2 \
+    --kernel_size 1 \
+    --timestep 999 \
+    --all_gradient_types \
+    --layer_step 2 \
+    --output_path probing/figures/layer_grid_timestep_999_example_2_kernel_1_all_grads_step2.png
+
+
+
+python src/probing_results/create_layer_image_grid.py \
+    --example_i 2 \
+    --kernel_size 1 \
+    --timestep 749 \
+    --all_gradient_types \
+    --layer_step 2 \
+    --output_path probing/figures/layer_grid_timestep_749_example_2_kernel_1_all_grads_step2.png
+
+
+
+python src/probing_results/create_layer_image_grid.py \
+    --example_i 2 \
+    --kernel_size 1 \
+    --timestep 136 \
+    --all_gradient_types \
+    --layer_step 2 \
+    --output_path probing/figures/layer_grid_timestep_136_example_2_kernel_1_all_grads_step2.png
+
+
+# ============================================================================
+# TIMESTEP COMPARISON LAYER GRIDS - Multiple timesteps, layers across columns
+# Each row is a timestep, each column is a layer
+# ============================================================================
+
+# Compare timesteps 999, 749, 136 - sampled layers (step 2), Gaussian gradient
+python src/probing_results/create_timestep_comparison_layer_grid.py \
+    --example_i 2 \
+    --kernel_size 1 \
+    --timesteps 999 749 136 \
+    --grad_type Gaussian \
+    --layer_step 2 \
+    --output_path probing/figures/timestep_comparison_layers_999_749_136_example_2_kernel_1_grad_Gaussian_step2.png
+
+
+# Compare timesteps 999, 749, 136 - sampled layers (step 2), Vertical gradient
+python src/probing_results/create_timestep_comparison_layer_grid.py \
+    --example_i 2 \
+    --kernel_size 1 \
+    --timesteps 999 749 136 \
+    --grad_type Vertical \
+    --layer_step 2 \
+    --output_path probing/figures/timestep_comparison_layers_999_749_136_example_2_kernel_1_grad_Vertical_step2.png
+
+# Compare timesteps 999, 749, 136 - sampled layers (step 2), Horizontal gradient
+python src/probing_results/create_timestep_comparison_layer_grid.py \
+    --example_i 2 \
+    --kernel_size 1 \
+    --timesteps 999 749 136 \
+    --grad_type Horizontal \
+    --layer_step 2 \
+    --output_path probing/figures/timestep_comparison_layers_999_749_136_example_2_kernel_1_grad_Horizontal_step2.png
+
+
+# ============================================================================
+# COMPONENT LAYER GRIDS - Fixed timestep and gradient type, showing components across rows, layers across columns
+# Each row is a component (Block, Mix-FFN, Self-Attn, Cross-Attn)
+# All layers shown for each combination
+# ============================================================================
+
+# Timestep 999, Gaussian gradient, all layers
+python src/probing_results/create_component_layer_grid.py \
+    --example_i 2 \
+    --kernel_size 1 \
+    --timestep 999 \
+    --grad_type Gaussian \
+    --output_path probing/figures/component_layer_grid_timestep_999_example_2_kernel_1_grad_Gaussian.png
+
+# Timestep 999, Vertical gradient, all layers
+python src/probing_results/create_component_layer_grid.py \
+    --example_i 2 \
+    --kernel_size 1 \
+    --timestep 999 \
+    --grad_type Vertical \
+    --output_path probing/figures/component_layer_grid_timestep_999_example_2_kernel_1_grad_Vertical.png
+
+# Timestep 999, Horizontal gradient, all layers
+python src/probing_results/create_component_layer_grid.py \
+    --example_i 2 \
+    --kernel_size 1 \
+    --timestep 999 \
+    --grad_type Horizontal \
+    --output_path probing/figures/component_layer_grid_timestep_999_example_2_kernel_1_grad_Horizontal.png
+
+# Timestep 749, Gaussian gradient, all layers
+python src/probing_results/create_component_layer_grid.py \
+    --example_i 2 \
+    --kernel_size 1 \
+    --timestep 749 \
+    --grad_type Gaussian \
+    --output_path probing/figures/component_layer_grid_timestep_749_example_2_kernel_1_grad_Gaussian.png
+
+# Timestep 749, Vertical gradient, all layers
+python src/probing_results/create_component_layer_grid.py \
+    --example_i 2 \
+    --kernel_size 1 \
+    --timestep 749 \
+    --grad_type Vertical \
+    --output_path probing/figures/component_layer_grid_timestep_749_example_2_kernel_1_grad_Vertical.png
+
+# Timestep 749, Horizontal gradient, all layers
+python src/probing_results/create_component_layer_grid.py \
+    --example_i 2 \
+    --kernel_size 1 \
+    --timestep 749 \
+    --grad_type Horizontal \
+    --output_path probing/figures/component_layer_grid_timestep_749_example_2_kernel_1_grad_Horizontal.png
+
+# Timestep 136, Gaussian gradient, all layers
+python src/probing_results/create_component_layer_grid.py \
+    --example_i 2 \
+    --kernel_size 1 \
+    --timestep 136 \
+    --grad_type Gaussian \
+    --output_path probing/figures/component_layer_grid_timestep_136_example_2_kernel_1_grad_Gaussian.png
+
+# Timestep 136, Vertical gradient, all layers
+python src/probing_results/create_component_layer_grid.py \
+    --example_i 2 \
+    --kernel_size 1 \
+    --timestep 136 \
+    --grad_type Vertical \
+    --output_path probing/figures/component_layer_grid_timestep_136_example_2_kernel_1_grad_Vertical.png
+
+# Timestep 136, Horizontal gradient, all layers
+python src/probing_results/create_component_layer_grid.py \
+    --example_i 2 \
+    --kernel_size 1 \
+    --timestep 136 \
+    --grad_type Horizontal \
+    --output_path probing/figures/component_layer_grid_timestep_136_example_2_kernel_1_grad_Horizontal.png
 

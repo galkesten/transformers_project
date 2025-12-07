@@ -1,2 +1,10 @@
 {"tag": "single_object", "include": [{"class": "bench", "count": 1}], "prompt": "a photo of a bench"}
 {"tag": "single_object", "include": [{"class": "cow", "count": 1}], "prompt": "a photo of a cow"}
+{"tag": "single_object", "include": [{"class": "bicycle", "count": 1}], "prompt": "a photo of a bicycle"}
+{"tag": "single_object", "include": [{"class": "clock", "count": 1}], "prompt": "a photo of a clock"}
+{"tag": "single_object", "include": [{"class": "carrot", "count": 1}], "prompt": "a photo of a carrot"}
+{"tag": "single_object", "include": [{"class": "suitcase", "count": 1}], "prompt": "a photo of a suitcase"}
+{"tag": "single_object", "include": [{"class": "fork", "count": 1}], "prompt": "a photo of a fork"}
+{"tag": "single_object", "include": [{"class": "surfboard", "count": 1}], "prompt": "a photo of a surfboard"}
+{"tag": "single_object", "include": [{"class": "refrigerator", "count": 1}], "prompt": "a photo of a refrigerator"}
+{"tag": "single_object", "include": [{"class": "cup", "count": 1}], "prompt": "a photo of a cup"}

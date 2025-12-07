@@ -33,7 +33,7 @@ import glob
 import argparse
 
 # Disable HTML/MathJax rendering in kaleido for PDF export
-pio.kaleido.scope.mathjax = None
+pio.defaults.mathjax = None
 
 def load_all_results(results_dir="probing/results_csvs", filename_pattern=None):
     """Load and concatenate CSV files matching the filename pattern

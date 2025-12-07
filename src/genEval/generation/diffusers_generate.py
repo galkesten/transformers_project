@@ -23,6 +23,8 @@ torch.set_grad_enabled(False)
 N_STEPS    = 20
 
 step_counter = -1
+current_timestep = None
+timestep_mapping = {}  # {step_counter: actual_timestep}
 
 def parse_args():
     parser = argparse.ArgumentParser()
@@ -141,7 +143,18 @@ def create_mean_over_tokens_ablation_hook(timesteps):
 def _count_steps(module, input):
     """Executed *before* each denoising step; increments global t."""
     global step_counter 
-    step_counter = step_counter + 1 
+    step_counter = step_counter + 1
+
+def _capture_timestep(module, args, kwargs=None):
+    """Capture actual timestep value conditioned on"""
+    global current_timestep, step_counter, timestep_mapping
+    if kwargs and 'timestep' in kwargs:
+        timestep = kwargs['timestep']
+        if isinstance(timestep, torch.Tensor):
+            current_timestep = int(timestep[0].item()) if timestep.dim() > 0 else int(timestep.item())
+        else:
+            current_timestep = int(timestep)
+        timestep_mapping[step_counter] = current_timestep 
 
 def load_model():
     pipe = SanaPipeline.from_pretrained(
@@ -236,8 +249,9 @@ def main(opt):
     # Load model
     model = load_model()
     model.transformer.register_forward_pre_hook(_count_steps)
+    model.transformer.register_forward_pre_hook(_capture_timestep, with_kwargs=True)
 
-    global step_counter
+    global step_counter, timestep_mapping
 
     if opt.ablation_type != "none":
         print(f"Ablating {opt.ablation_type} {opt.ablation_component} in layer {opt.ablation_layer}") 
@@ -248,6 +262,7 @@ def main(opt):
 
     for index, metadata in enumerate(metadatas):
         step_counter = -1 #reset step counter for each prompt
+        timestep_mapping.clear()  # Reset timestep mapping for each prompt
         seed_everything(opt.seed)
 
         outpath = os.path.join(opt.outdir, f"{index:0>5}")
@@ -295,6 +310,13 @@ def main(opt):
                 grid.save(os.path.join(outpath, f'grid.png'))
                 del grid
         del all_samples
+
+    # Save timestep mapping
+    if timestep_mapping:
+        timestep_map_file = os.path.join(opt.outdir, "timestep_mapping.json")
+        with open(timestep_map_file, 'w') as f:
+            json.dump({str(k): v for k, v in sorted(timestep_mapping.items())}, f, indent=2)
+        print(f"Saved timestep mapping to {timestep_map_file}")
 
     print("Done.")
 

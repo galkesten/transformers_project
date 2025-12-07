@@ -1,0 +1,341 @@
+# Commands for ablation experiments with new pipeline features
+# Using evaluation_metadata.jsonl with new sampling parameters
+
+# =============================================================================
+# BASELINE EXPERIMENT (COMPLETED)
+# =============================================================================
+# Already run - results in ablation_results_new/quantitative_results/baseline/
+
+./py-sbatch_gen_eval.sh src/genEval/run_ablation_pipeline.py \
+  --baseline \
+  --n_samples 2 \
+  --seed 42 \
+  --batch_size 2 \
+  --prompts_file src/genEval/prompts/evaluation_metadata.jsonl \
+  --output_dir ablation_results_new
+
+
+# =============================================================================
+# COLLECT MEAN ACTIVATIONS
+# =============================================================================
+# Required for mean_per_token ablation type
+
+./py-sbatch_gen_eval.sh src/genEval/collect_mean_activations.py src/genEval/prompts/evaluation_metadata.jsonl \
+  --n_samples 2 \
+  --outdir mean_ablations \
+  --ablation_component mix_ffn \
+  --batch_size 2 \
+  --seed 42
+
+./py-sbatch_gen_eval.sh src/genEval/collect_mean_activations.py src/genEval/prompts/evaluation_metadata.jsonl \
+  --n_samples 2 \
+  --outdir mean_ablations \
+  --ablation_component cross_attn \
+  --batch_size 2 \
+  --seed 42
+
+./py-sbatch_gen_eval.sh src/genEval/collect_mean_activations.py src/genEval/prompts/evaluation_metadata.jsonl \
+  --n_samples 2 \
+  --outdir mean_ablations \
+  --ablation_component self_attn \
+  --batch_size 2 \
+  --seed 42
+
+
+# =============================================================================
+# LAYER-WISE ABLATIONS
+# =============================================================================
+# Using existing mean activations from mean_ablations/ directory
+# All ablations will use baseline results for comparison
+
+# -----------------------------------------------------------------------------
+# Zero Ablation (all components)
+# -----------------------------------------------------------------------------
+
+./py-sbatch_gen_eval.sh src/genEval/run_ablation_pipeline.py \
+  --n_samples 2 \
+  --seed 42 \
+  --batch_size 2 \
+  --ablation_type zero \
+  --ablation_component mix_ffn \
+  --prompts_file src/genEval/prompts/evaluation_metadata.jsonl \
+  --output_dir ablation_results_new \
+  --baseline_results_file ablation_results_new/quantitative_results/baseline/baseline_detailed_results.jsonl \
+  --sample_prompts_per_task 5 \
+  --sample_succeeded_per_task 3 \
+  --sample_failed_per_task 3
+
+./py-sbatch_gen_eval.sh src/genEval/run_ablation_pipeline.py \
+  --n_samples 2 \
+  --seed 42 \
+  --batch_size 2 \
+  --ablation_type zero \
+  --ablation_component cross_attn \
+  --prompts_file src/genEval/prompts/evaluation_metadata.jsonl \
+  --output_dir ablation_results_new \
+  --baseline_results_file ablation_results_new/quantitative_results/baseline/baseline_detailed_results.jsonl \
+  --sample_prompts_per_task 5 \
+  --sample_succeeded_per_task 3 \
+  --sample_failed_per_task 3
+
+./py-sbatch_gen_eval.sh src/genEval/run_ablation_pipeline.py \
+  --n_samples 2 \
+  --seed 42 \
+  --batch_size 2 \
+  --ablation_type zero \
+  --ablation_component self_attn \
+  --prompts_file src/genEval/prompts/evaluation_metadata.jsonl \
+  --output_dir ablation_results_new \
+  --baseline_results_file ablation_results_new/quantitative_results/baseline/baseline_detailed_results.jsonl \
+  --sample_prompts_per_task 5 \
+  --sample_succeeded_per_task 3 \
+  --sample_failed_per_task 3
+
+
+# -----------------------------------------------------------------------------
+# Mean Over Tokens Ablation (all components)
+# -----------------------------------------------------------------------------
+
+./py-sbatch_gen_eval.sh src/genEval/run_ablation_pipeline.py \
+  --n_samples 2 \
+  --seed 42 \
+  --batch_size 2 \
+  --ablation_type mean_over_tokens \
+  --ablation_component mix_ffn \
+  --prompts_file src/genEval/prompts/evaluation_metadata.jsonl \
+  --output_dir ablation_results_new \
+  --baseline_results_file ablation_results_new/quantitative_results/baseline/baseline_detailed_results.jsonl \
+  --sample_prompts_per_task 5 \
+  --sample_succeeded_per_task 3 \
+  --sample_failed_per_task 3
+
+./py-sbatch_gen_eval.sh src/genEval/run_ablation_pipeline.py \
+  --n_samples 2 \
+  --seed 42 \
+  --batch_size 2 \
+  --ablation_type mean_over_tokens \
+  --ablation_component cross_attn \
+  --prompts_file src/genEval/prompts/evaluation_metadata.jsonl \
+  --output_dir ablation_results_new \
+  --baseline_results_file ablation_results_new/quantitative_results/baseline/baseline_detailed_results.jsonl \
+  --sample_prompts_per_task 5 \
+  --sample_succeeded_per_task 3 \
+  --sample_failed_per_task 3
+
+./py-sbatch_gen_eval.sh src/genEval/run_ablation_pipeline.py \
+  --n_samples 2 \
+  --seed 42 \
+  --batch_size 2 \
+  --ablation_type mean_over_tokens \
+  --ablation_component self_attn \
+  --prompts_file src/genEval/prompts/evaluation_metadata.jsonl \
+  --output_dir ablation_results_new \
+  --baseline_results_file ablation_results_new/quantitative_results/baseline/baseline_detailed_results.jsonl \
+  --sample_prompts_per_task 5 \
+  --sample_succeeded_per_task 3 \
+  --sample_failed_per_task 3
+
+
+# -----------------------------------------------------------------------------
+# Mean Per Token Ablation (all components)
+# -----------------------------------------------------------------------------
+
+./py-sbatch_gen_eval.sh src/genEval/run_ablation_pipeline.py \
+  --n_samples 2 \
+  --seed 42 \
+  --batch_size 2 \
+  --ablation_type mean_per_token \
+  --ablation_component mix_ffn \
+  --prompts_file src/genEval/prompts/evaluation_metadata.jsonl \
+  --output_dir ablation_results_new \
+  --mean_activations_file mean_ablations/mean_activations_mix_ffn.pt \
+  --baseline_results_file ablation_results_new/quantitative_results/baseline/baseline_detailed_results.jsonl \
+  --sample_prompts_per_task 5 \
+  --sample_succeeded_per_task 3 \
+  --sample_failed_per_task 3
+
+./py-sbatch_gen_eval.sh src/genEval/run_ablation_pipeline.py \
+  --n_samples 2 \
+  --seed 42 \
+  --batch_size 2 \
+  --ablation_type mean_per_token \
+  --ablation_component cross_attn \
+  --prompts_file src/genEval/prompts/evaluation_metadata.jsonl \
+  --output_dir ablation_results_new \
+  --mean_activations_file mean_ablations/mean_activations_cross_attn.pt \
+  --baseline_results_file ablation_results_new/quantitative_results/baseline/baseline_detailed_results.jsonl \
+  --sample_prompts_per_task 5 \
+  --sample_succeeded_per_task 3 \
+  --sample_failed_per_task 3
+
+./py-sbatch_gen_eval.sh src/genEval/run_ablation_pipeline.py \
+  --n_samples 2 \
+  --seed 42 \
+  --batch_size 2 \
+  --ablation_type mean_per_token \
+  --ablation_component self_attn \
+  --prompts_file src/genEval/prompts/evaluation_metadata.jsonl \
+  --output_dir ablation_results_new \
+  --mean_activations_file mean_ablations/mean_activations_self_attn.pt \
+  --baseline_results_file ablation_results_new/quantitative_results/baseline/baseline_detailed_results.jsonl \
+  --sample_prompts_per_task 5 \
+  --sample_succeeded_per_task 3 \
+  --sample_failed_per_task 3
+
+
+# =============================================================================
+# STEP-WISE ABLATIONS
+# =============================================================================
+
+# -----------------------------------------------------------------------------
+# Zero Ablation - Step-wise (all components)
+# -----------------------------------------------------------------------------
+
+./py-sbatch_gen_eval.sh src/genEval/run_ablation_pipeline.py \
+  --n_samples 2 \
+  --seed 42 \
+  --batch_size 2 \
+  --ablation_type zero \
+  --ablation_component mix_ffn \
+  --prompts_file src/genEval/prompts/evaluation_metadata.jsonl \
+  --output_dir ablation_results_new \
+  --step_wise \
+  --baseline_results_file ablation_results_new/quantitative_results/baseline/baseline_detailed_results.jsonl \
+  --sample_prompts_per_task 5 \
+  --sample_succeeded_per_task 3 \
+  --sample_failed_per_task 3
+
+./py-sbatch_gen_eval.sh src/genEval/run_ablation_pipeline.py \
+  --n_samples 2 \
+  --seed 42 \
+  --batch_size 2 \
+  --ablation_type zero \
+  --ablation_component cross_attn \
+  --prompts_file src/genEval/prompts/evaluation_metadata.jsonl \
+  --output_dir ablation_results_new \
+  --step_wise \
+  --baseline_results_file ablation_results_new/quantitative_results/baseline/baseline_detailed_results.jsonl \
+  --sample_prompts_per_task 5 \
+  --sample_succeeded_per_task 3 \
+  --sample_failed_per_task 3
+
+./py-sbatch_gen_eval.sh src/genEval/run_ablation_pipeline.py \
+  --n_samples 2 \
+  --seed 42 \
+  --batch_size 2 \
+  --ablation_type zero \
+  --ablation_component self_attn \
+  --prompts_file src/genEval/prompts/evaluation_metadata.jsonl \
+  --output_dir ablation_results_new \
+  --step_wise \
+  --baseline_results_file ablation_results_new/quantitative_results/baseline/baseline_detailed_results.jsonl \
+  --sample_prompts_per_task 5 \
+  --sample_succeeded_per_task 3 \
+  --sample_failed_per_task 3
+
+
+# -----------------------------------------------------------------------------
+# Mean Over Tokens Ablation - Step-wise (all components)
+# -----------------------------------------------------------------------------
+
+./py-sbatch_gen_eval.sh src/genEval/run_ablation_pipeline.py \
+  --n_samples 2 \
+  --seed 42 \
+  --batch_size 2 \
+  --ablation_type mean_over_tokens \
+  --ablation_component mix_ffn \
+  --prompts_file src/genEval/prompts/evaluation_metadata.jsonl \
+  --output_dir ablation_results_new \
+  --step_wise \
+  --baseline_results_file ablation_results_new/quantitative_results/baseline/baseline_detailed_results.jsonl \
+  --sample_prompts_per_task 5 \
+  --sample_succeeded_per_task 3 \
+  --sample_failed_per_task 3
+
+./py-sbatch_gen_eval.sh src/genEval/run_ablation_pipeline.py \
+  --n_samples 2 \
+  --seed 42 \
+  --batch_size 2 \
+  --ablation_type mean_over_tokens \
+  --ablation_component cross_attn \
+  --prompts_file src/genEval/prompts/evaluation_metadata.jsonl \
+  --output_dir ablation_results_new \
+  --step_wise \
+  --baseline_results_file ablation_results_new/quantitative_results/baseline/baseline_detailed_results.jsonl \
+  --sample_prompts_per_task 5 \
+  --sample_succeeded_per_task 3 \
+  --sample_failed_per_task 3
+
+./py-sbatch_gen_eval.sh src/genEval/run_ablation_pipeline.py \
+  --n_samples 2 \
+  --seed 42 \
+  --batch_size 2 \
+  --ablation_type mean_over_tokens \
+  --ablation_component self_attn \
+  --prompts_file src/genEval/prompts/evaluation_metadata.jsonl \
+  --output_dir ablation_results_new \
+  --step_wise \
+  --baseline_results_file ablation_results_new/quantitative_results/baseline/baseline_detailed_results.jsonl \
+  --sample_prompts_per_task 5 \
+  --sample_succeeded_per_task 3 \
+  --sample_failed_per_task 3
+
+
+# -----------------------------------------------------------------------------
+# Mean Per Token Ablation - Step-wise (all components)
+# -----------------------------------------------------------------------------
+
+./py-sbatch_gen_eval.sh src/genEval/run_ablation_pipeline.py \
+  --n_samples 2 \
+  --seed 42 \
+  --batch_size 2 \
+  --ablation_type mean_per_token \
+  --ablation_component mix_ffn \
+  --prompts_file src/genEval/prompts/evaluation_metadata.jsonl \
+  --output_dir ablation_results_new \
+  --mean_activations_file mean_ablations/mean_activations_mix_ffn.pt \
+  --step_wise \
+  --baseline_results_file ablation_results_new/quantitative_results/baseline/baseline_detailed_results.jsonl \
+  --sample_prompts_per_task 5 \
+  --sample_succeeded_per_task 3 \
+  --sample_failed_per_task 3
+
+./py-sbatch_gen_eval.sh src/genEval/run_ablation_pipeline.py \
+  --n_samples 2 \
+  --seed 42 \
+  --batch_size 2 \
+  --ablation_type mean_per_token \
+  --ablation_component cross_attn \
+  --prompts_file src/genEval/prompts/evaluation_metadata.jsonl \
+  --output_dir ablation_results_new \
+  --mean_activations_file mean_ablations/mean_activations_cross_attn.pt \
+  --step_wise \
+  --baseline_results_file ablation_results_new/quantitative_results/baseline/baseline_detailed_results.jsonl \
+  --sample_prompts_per_task 5 \
+  --sample_succeeded_per_task 3 \
+  --sample_failed_per_task 3
+
+./py-sbatch_gen_eval.sh src/genEval/run_ablation_pipeline.py \
+  --n_samples 2 \
+  --seed 42 \
+  --batch_size 2 \
+  --ablation_type mean_per_token \
+  --ablation_component self_attn \
+  --prompts_file src/genEval/prompts/evaluation_metadata.jsonl \
+  --output_dir ablation_results_new \
+  --mean_activations_file mean_ablations/mean_activations_self_attn.pt \
+  --step_wise \
+  --baseline_results_file ablation_results_new/quantitative_results/baseline/baseline_detailed_results.jsonl \
+  --sample_prompts_per_task 5 \
+  --sample_succeeded_per_task 3 \
+  --sample_failed_per_task 3
+
+
+# =============================================================================
+# AGGREGATE RESULTS
+# =============================================================================
+# Run after all experiments complete to generate summary tables
+
+python src/genEval/aggregate_results.py --results_dir ablation_results_new
+
+

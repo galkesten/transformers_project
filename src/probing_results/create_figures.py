@@ -10,7 +10,7 @@ from pathlib import Path
 import glob
 import argparse
 
-pio.kaleido.scope.mathjax = None
+pio.defaults.mathjax = None
 
 def load_final_representation_data(results_dir="probing/results_csvs", filename_pattern=None):
     csv_files = glob.glob(f"{results_dir}/*.csv")
@@ -110,7 +110,7 @@ def plot_final_representation_mae_spearman(df, initial_df, output_dir="probing/f
                 y=mae_values,
                 mode='lines+markers',
                 name=grad_type,
-                line=dict(color=color, width=2.5),
+                line=dict(color=color, width=2),
                 marker=dict(size=5, color=color),
                 showlegend=False,
                 legendgroup=grad_type,
@@ -125,7 +125,7 @@ def plot_final_representation_mae_spearman(df, initial_df, output_dir="probing/f
                 y=spearman_values,
                 mode='lines+markers',
                 name=grad_type,
-                line=dict(color=color, width=2.5),
+                line=dict(color=color, width=2),
                 marker=dict(size=5, color=color),
                 showlegend=False,
                 legendgroup=grad_type,
@@ -155,7 +155,7 @@ def plot_final_representation_mae_spearman(df, initial_df, output_dir="probing/f
                     y=mae_values_initial,
                     mode='lines+markers',
                     name=f'{grad_type} (initial)',
-                    line=dict(color=color, width=2.5, dash='dot'),
+                    line=dict(color=color, width=2, dash='dot'),
                     marker=dict(size=4, color=color, symbol='diamond'),
                     showlegend=False,
                     legendgroup=f'{grad_type}_initial',
@@ -170,7 +170,7 @@ def plot_final_representation_mae_spearman(df, initial_df, output_dir="probing/f
                     y=spearman_values_initial,
                     mode='lines+markers',
                     name=f'{grad_type} (initial)',
-                    line=dict(color=color, width=2.5, dash='dot'),
+                    line=dict(color=color, width=2, dash='dot'),
                     marker=dict(size=4, color=color, symbol='diamond'),
                     showlegend=False,
                     legendgroup=f'{grad_type}_initial',
@@ -192,7 +192,7 @@ def plot_final_representation_mae_spearman(df, initial_df, output_dir="probing/f
                         y=[baseline_mae, baseline_mae],
                         mode='lines',
                         name=f'{grad_type} baseline',
-                        line=dict(color=color, width=2.5, dash='dash'),
+                        line=dict(color=color, width=2, dash='dash'),
                         opacity=0.8,
                         showlegend=False,
                         hoverinfo='skip'
@@ -206,7 +206,7 @@ def plot_final_representation_mae_spearman(df, initial_df, output_dir="probing/f
                         y=[baseline_spearman, baseline_spearman],
                         mode='lines',
                         name=f'{grad_type} baseline',
-                        line=dict(color=color, width=2.5, dash='dash'),
+                        line=dict(color=color, width=2, dash='dash'),
                         opacity=0.8,
                         showlegend=False,
                         hoverinfo='skip'
@@ -222,7 +222,7 @@ def plot_final_representation_mae_spearman(df, initial_df, output_dir="probing/f
                 y=[None],
                 mode='lines+markers',
                 name=grad_type,
-                line=dict(color=color, width=2.5),
+                line=dict(color=color, width=2),
                 marker=dict(size=5, color=color),
                 showlegend=True,
                 legendgroup=f'legend_{grad_type}',
@@ -238,7 +238,7 @@ def plot_final_representation_mae_spearman(df, initial_df, output_dir="probing/f
                 y=[None],
                 mode='lines+markers',
                 name='Final',
-                line=dict(color='gray', width=2.5),
+                line=dict(color='gray', width=2),
                 marker=dict(size=5, color='gray'),
                 showlegend=True,
                 legendgroup='legend_final',
@@ -291,45 +291,53 @@ def plot_final_representation_mae_spearman(df, initial_df, output_dir="probing/f
     fig.update_xaxes(
         title_text='Timestep',
         range=[1050, -50],
-        row=1, col=1
+        row=1, col=1,
+        title_font=dict(size=16, family="Times New Roman"),
+        tickfont=dict(size=14, family="Times New Roman")
     )
     fig.update_xaxes(
         title_text='Timestep',
         range=[1050, -50],
-        row=1, col=2
+        row=1, col=2,
+        title_font=dict(size=16, family="Times New Roman"),
+        tickfont=dict(size=14, family="Times New Roman")
     )
     
     fig.update_yaxes(
         title_text='MAE',
         range=[mae_min - mae_padding, mae_max + mae_padding],
-        row=1, col=1
+        row=1, col=1,
+        title_font=dict(size=16, family="Times New Roman"),
+        tickfont=dict(size=14, family="Times New Roman")
     )
     fig.update_yaxes(
         title_text='Spearman Correlation',
         range=[spearman_min - spearman_padding, spearman_max + spearman_padding],
-        row=1, col=2
+        row=1, col=2,
+        title_font=dict(size=16, family="Times New Roman"),
+        tickfont=dict(size=14, family="Times New Roman")
     )
     
     light_blue = '#e6f3ff'
     
     fig.update_layout(
-        height=400,
-        width=800,
+        height=350,
+        width=700,
         showlegend=True,
         legend=dict(
             orientation='h',
             yanchor='top',
-            y=-0.15,
+            y=-0.20,
             xanchor='center',
             x=0.5,
-            font=dict(size=11, family="Times New Roman"),
+            font=dict(size=14, family="Times New Roman"),
             traceorder='normal'
         ),
         hovermode='x unified',
         plot_bgcolor=light_blue,
         paper_bgcolor='white',
-        margin=dict(l=50, r=30, t=20, b=70),
-        font=dict(size=11, family="Times New Roman"),
+        margin=dict(l=60, r=40, t=40, b=100),
+        font=dict(size=14, family="Times New Roman"),
         autosize=False
     )
     
@@ -337,17 +345,13 @@ def plot_final_representation_mae_spearman(df, initial_df, output_dir="probing/f
         gridcolor='white',
         zeroline=False,
         showgrid=True,
-        gridwidth=1,
-        title_font=dict(size=12, family="Times New Roman"),
-        tickfont=dict(size=10, family="Times New Roman")
+        gridwidth=1
     )
     fig.update_yaxes(
         gridcolor='white',
         zeroline=False,
         showgrid=True,
-        gridwidth=1,
-        title_font=dict(size=12, family="Times New Roman"),
-        tickfont=dict(size=10, family="Times New Roman")
+        gridwidth=1
     )
     
     kernel_str = f"_kernel{kernel_size}" if kernel_size is not None else ""
@@ -356,12 +360,12 @@ def plot_final_representation_mae_spearman(df, initial_df, output_dir="probing/f
     
     filename = f"{representation_str}_mae_spearman{kernel_str}{suffix_str}.png"
     filepath = Path(output_dir) / filename
-    fig.write_image(str(filepath), width=800, height=400)
+    fig.write_image(str(filepath), width=700, height=350)
     print(f"Saved: {filepath}")
     
     filename_pdf = f"{representation_str}_mae_spearman{kernel_str}{suffix_str}.pdf"
     filepath_pdf = Path(output_dir) / filename_pdf
-    fig.write_image(str(filepath_pdf), width=800, height=400)
+    fig.write_image(str(filepath_pdf), width=700, height=350)
     print(f"Saved: {filepath_pdf}")
 
 def load_layer_data(results_dir="probing/results_csvs", filename_pattern=None):
@@ -377,6 +381,12 @@ def load_layer_data(results_dir="probing/results_csvs", filename_pattern=None):
     csv_files = [f for f in csv_files if "loss_stats" not in f]
     print(f"After excluding loss_stats files: {len(csv_files)} files remaining")
     
+    # Exclude files with "components" in filename - we only want block_output files
+    csv_files = [f for f in csv_files if "components" not in f]
+    print(f"After excluding component files: {len(csv_files)} files remaining")
+    if len(csv_files) == 0:
+        raise ValueError("No block_output CSV files found. Files with 'components' in filename are excluded.")
+    
     dfs = []
     for f in csv_files:
         df = pd.read_csv(f)
@@ -385,6 +395,17 @@ def load_layer_data(results_dir="probing/results_csvs", filename_pattern=None):
     
     combined = pd.concat(dfs, ignore_index=True)
     print(f"Total rows after merging: {len(combined)}")
+    
+    # Keep block_output rows and initial patch_embed rows
+    if 'component' in combined.columns:
+        before_filter = len(combined)
+        combined = combined[
+            (combined['component'] == 'block_output') | 
+            ((combined['position'] == 'initial') & (combined['component'] == 'patch_embed'))
+        ].copy()
+        after_filter = len(combined)
+        if before_filter != after_filter:
+            print(f"Filtered to {after_filter} rows (block_output and initial/patch_embed) (removed {before_filter - after_filter} other rows)")
     
     layer_data = combined[combined['position'].apply(lambda x: str(x).isdigit())].copy()
     layer_data['position'] = layer_data['position'].astype(int)
@@ -451,9 +472,20 @@ def plot_timestep_across_layers(df, initial_df, output_dir="probing/figures", ke
     fig = make_subplots(
         rows=2, cols=3,
         subplot_titles=subplot_titles,
-        vertical_spacing=0.15,
+        vertical_spacing=0.25,
         horizontal_spacing=0.10
     )
+    
+    # Collect all MAE and Spearman values to determine global ranges for axis alignment
+    # Include baseline values in the range calculation
+    all_mae_values = []
+    all_spearman_values = []
+    
+    # Add baseline values to the range calculation
+    for grad_type in gradient_types:
+        if grad_type in baseline_values:
+            all_mae_values.append(baseline_values[grad_type]['mae'])
+            all_spearman_values.append(baseline_values[grad_type]['spearman'])
     
     for grad_idx, grad_type in enumerate(gradient_types):
         grad_data = df[df['gradient_type'] == grad_type].copy()
@@ -471,6 +503,10 @@ def plot_timestep_across_layers(df, initial_df, output_dir="probing/figures", ke
             layers_t = timestep_data['layer_num'].values
             mae_values = timestep_data['mean_mae'].values
             spearman_values = timestep_data['mean_spearman'].values
+            
+            # Collect values for global range calculation
+            all_mae_values.extend(mae_values)
+            all_spearman_values.extend(spearman_values)
             
             if smooth:
                 smooth_window = 3
@@ -497,7 +533,7 @@ def plot_timestep_across_layers(df, initial_df, output_dir="probing/figures", ke
                     y=mae_values_plot,
                     mode='lines',
                     name=timestep_label,
-                    line=dict(color=color, width=1.5, shape=line_shape),
+                    line=dict(color=color, width=2, shape=line_shape),
                     showlegend=show_legend,
                     legendgroup=f'timestep_{timestep}',
                     hovertemplate=f'<b>{timestep_label}</b><br>Layer: %{{x}}<br>MAE: %{{y:.4f}}<extra></extra>'
@@ -511,13 +547,35 @@ def plot_timestep_across_layers(df, initial_df, output_dir="probing/figures", ke
                     y=spearman_values_plot,
                     mode='lines',
                     name=timestep_label,
-                    line=dict(color=color, width=1.5, shape=line_shape),
+                    line=dict(color=color, width=2, shape=line_shape),
                     showlegend=False,
                     legendgroup=f'timestep_{timestep}',
                     hovertemplate=f'<b>{timestep_label}</b><br>Layer: %{{x}}<br>Spearman: %{{y:.4f}}<extra></extra>'
                 ),
                 row=2, col=col
             )
+    
+    # Calculate global ranges with padding
+    if len(all_mae_values) > 0:
+        mae_min = min(all_mae_values)
+        mae_max = max(all_mae_values)
+        mae_range = mae_max - mae_min
+        mae_padding = mae_range * 0.05  # 5% padding
+        mae_y_range = [max(0, mae_min - mae_padding), mae_max + mae_padding]
+    else:
+        mae_y_range = None
+    
+    if len(all_spearman_values) > 0:
+        spearman_min = min(all_spearman_values)
+        spearman_max = max(all_spearman_values)
+        spearman_range = spearman_max - spearman_min
+        spearman_padding = spearman_range * 0.05  # 5% padding
+        spearman_y_range = [max(-1, spearman_min - spearman_padding), min(1, spearman_max + spearman_padding)]
+    else:
+        spearman_y_range = None
+    
+    print(f"Global MAE range: {mae_y_range}")
+    print(f"Global Spearman range: {spearman_y_range}")
     
     baseline_color_map = {
         'Vertical': px.colors.qualitative.Plotly[0],
@@ -564,31 +622,70 @@ def plot_timestep_across_layers(df, initial_df, output_dir="probing/figures", ke
             )
     
     for col_idx in range(1, 4):
-        fig.update_xaxes(title_text='Layer', row=1, col=col_idx)
-        fig.update_xaxes(title_text='Layer', row=2, col=col_idx)
-        fig.update_yaxes(title_text='MAE', row=1, col=col_idx)
-        fig.update_yaxes(title_text='Spearman Correlation', row=2, col=col_idx)
+        fig.update_xaxes(
+            title_text='Layer', 
+            row=1, col=col_idx,
+            title_font=dict(size=16, family="Times New Roman"),
+            tickfont=dict(size=14, family="Times New Roman")
+        )
+        fig.update_xaxes(
+            title_text='Layer', 
+            row=2, col=col_idx,
+            title_font=dict(size=16, family="Times New Roman"),
+            tickfont=dict(size=14, family="Times New Roman")
+        )
+        # Set y-axis ranges to be the same across all columns in each row
+        if mae_y_range is not None:
+            fig.update_yaxes(
+                title_text='MAE',
+                range=mae_y_range,
+                row=1, col=col_idx,
+                title_font=dict(size=16, family="Times New Roman"),
+                tickfont=dict(size=14, family="Times New Roman")
+            )
+        else:
+            fig.update_yaxes(
+                title_text='MAE', 
+                row=1, col=col_idx,
+                title_font=dict(size=16, family="Times New Roman"),
+                tickfont=dict(size=14, family="Times New Roman")
+            )
+        if spearman_y_range is not None:
+            fig.update_yaxes(
+                title_text='Spearman Correlation',
+                range=spearman_y_range,
+                row=2, col=col_idx,
+                title_font=dict(size=16, family="Times New Roman"),
+                tickfont=dict(size=14, family="Times New Roman")
+            )
+        else:
+            fig.update_yaxes(
+                title_text='Spearman Correlation', 
+                row=2, col=col_idx,
+                title_font=dict(size=16, family="Times New Roman"),
+                tickfont=dict(size=14, family="Times New Roman")
+            )
     
     fig.update_layout(
-        height=800,
-        width=1400,
+        height=600,
+        width=1000,
         plot_bgcolor='#e6f3ff',
         paper_bgcolor='white',
-        font=dict(size=11, family="Times New Roman"),
+        font=dict(size=14, family="Times New Roman"),
         showlegend=True,
         legend=dict(
             orientation='h',
             yanchor='bottom',
-            y=-0.22,
+            y=-0.35,
             xanchor='center',
             x=0.5,
-            font=dict(size=9)
+            font=dict(size=14, family="Times New Roman")
         ),
-        margin=dict(l=60, r=40, t=60, b=160)
+        margin=dict(l=60, r=40, t=60, b=120)
     )
     
     for annotation in fig['layout']['annotations']:
-        annotation['font'] = dict(size=11, family="Times New Roman")
+        annotation['font'] = dict(size=12, family="Times New Roman")
     
     kernel_str = f"_kernel{kernel_size}" if kernel_size is not None else ""
     step_str = f"_tstep{timestep_step}" if timestep_step > 1 else ""
@@ -596,12 +693,12 @@ def plot_timestep_across_layers(df, initial_df, output_dir="probing/figures", ke
     
     filename_png = f"timestep_across_layers{kernel_str}{step_str}{suffix_str}.png"
     filepath = Path(output_dir) / filename_png
-    fig.write_image(str(filepath), width=1400, height=800)
+    fig.write_image(str(filepath), width=1000, height=600)
     print(f"Saved: {filepath}")
     
     filename_pdf = f"timestep_across_layers{kernel_str}{step_str}{suffix_str}.pdf"
     filepath_pdf = Path(output_dir) / filename_pdf
-    fig.write_image(str(filepath_pdf), width=1400, height=800)
+    fig.write_image(str(filepath_pdf), width=1000, height=600)
     print(f"Saved: {filepath_pdf}")
 
 def main():

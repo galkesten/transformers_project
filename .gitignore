@@ -8,3 +8,8 @@ mmdetection/
 *.lock
 probing/images_ln_conv_zeros/*
 probing/images_ln_conv_sana/*
+*.png
+*.pdf
+*.pt
+*.json
+*.jsonl
